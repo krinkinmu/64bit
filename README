@@ -2,9 +2,9 @@ Why we want to enter long mode from legacy multiboot?
 
 1. multiboot2 doesn't support long mode either, so there is no big advantage,
    except loading 64 bit elf image
-2. qemu doesn't support multiboot2 (as far as i know)
+2. qemu doesn't support multiboot2 (*as far as i know)
 3. even if qemu does support multiboot2, grub2 doesn't support multiboot2
-   properly (as far as i know)
+   properly (*as far as i know)
 
 How to enter long mode from legacy multiboot?
 
@@ -33,3 +33,7 @@ How to enter long mode from legacy multiboot?
     contain L bit set and D bit cleared, and LIMIT and OFFSET fields of
     64 bit descriptor are ignored (so there is no use setting it)
 6.3 pointer in long mode GDT pointer is 64 bit
+
+
+*"as far as i know" here means, that i actually don't know, that is i've heard
+or read it somewhere but never checked.
