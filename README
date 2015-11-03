@@ -1,0 +1,35 @@
+Why we want to enter long mode from legacy multiboot?
+
+1. multiboot2 doesn't support long mode either, so there is no big advantage,
+   except loading 64 bit elf image
+2. qemu doesn't support multiboot2 (as far as i know)
+3. even if qemu does support multiboot2, grub2 doesn't support multiboot2
+   properly (as far as i know)
+
+How to enter long mode from legacy multiboot?
+
+1. We need aout kludge, because multiboot1 doesn't support 64 bit elf binaries,
+   so it needs some help
+
+2. We have to check that long mode is available:
+2.1 check CPUID instruction is available (21 bit of flags register)
+2.2 check extended CPUID functions are available (0x80000000 cmd of CPUID)
+2.3 check long mode is available (0x80000000 cmd of CPUID, bit 29 of edx)
+
+3. Create identity mapping for lower 2Mb of physical memory (2Mb = 1Mb of lowmem
+   + 1Mb for code and data)
+3.1 we use 2Mb pages in 4 level address translation scheme (we can actually use
+    1Gb pages as well)
+3.2 we also have to enable PAE bit (5 bit) in cr4 register
+
+4. Enable long mode if EFER MSR (0xC0000080, bit 8)
+
+5. Enable paging (bit 31 of cr0 register)
+
+6. Load long mode GDT
+6.1 long mode GDT contains 32bit mode descriptors for 32bit compatibility
+    submode of long mode
+6.2 long mode GDT also contains 64bit code and data descriptors, they are
+    contain L bit set and D bit cleared, and LIMIT and OFFSET fields of
+    64 bit descriptor are ignored (so there is no use setting it)
+6.3 pointer in long mode GDT pointer is 64 bit
