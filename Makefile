@@ -1,7 +1,8 @@
 CC ?= gcc
 LD ?= ld
 
-CFLAGS := -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -ffreestanding -O3
+CFLAGS := -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -ffreestanding -O3 \
+	-Wall -Wextra -Werror -pedantic
 LFLAGS := -s -nostdlib -nostdinc
 
 SRC := main.c 

@@ -1,5 +1,5 @@
 #define MB_HEADER_MAGIC 0x1BADB002
-#define MB_HEADER_FLAGS (1 << 16)
+#define MB_HEADER_FLAGS ((1 << 16) | (1 << 1))
 #define MB_HEADER_CKSUM -(MB_HEADER_MAGIC + MB_HEADER_FLAGS)
 
 	.section .header, "a"
@@ -36,19 +36,75 @@ start32:
 	pushl $0
 	popf
 
+	pushl %eax
+
 	call videomem_clrscr
 
 	pushl $zeroing_bss
 	call videomem_puts
+	addl $4, %esp
 
 	xorl %eax, %eax
 	movl bss_begin, %edi
 	movl bss_end, %ecx
 	subl %edi, %ecx
 	shrl $2, %ecx
-	rep
-	stosl
+	rep stosl
 
+	popl %eax
+	cmpl $0x2badb002, %eax
+	je 1f
+
+	pushl $not_multiboot
+	call fail
+
+1:
+	movl (%ebx), %edi
+	test $(1 << 6), %edi
+	jne 1f
+
+	pushl $no_memory_map
+	call fail
+
+1:
+	movl 44(%ebx), %eax
+	cmpl $0x1000, %eax
+	jbe 1f
+
+	pushl $memory_map_too_large
+	call fail
+
+1:
+	pushl %eax
+	movl 48(%ebx), %eax
+	pushl %eax
+	pushl $mmap
+	call memcpy
+	addl $12, %esp
+
+	test $(1 << 2), %edi
+	je 1f
+
+	movl 16(%ebx), %ebx
+	pushl %ebx
+	call strlen
+	popl %ebx
+
+	cmpl $0x1000, %eax
+	jae 2f
+
+	pushl %eax
+	pushl %ebx
+	pushl $cmd
+	call memcpy
+	addl $12, %esp
+	jmp 1f
+2:
+	pushl $cmdline_too_long
+	call videomem_puts
+	addl $4, %esp
+
+1:
 	call check_long_mode
 	call setup_identity_mapping
 
@@ -85,12 +141,10 @@ start64:
 	movw %ax, %gs
 	movw %ax, %ss
 
+	movq $mmap, %rdi
+	movq $cmd, %rsi
 	call main
 
-	movl $0xb8000, %edi
-	movq $0x0720072007200720, %rax
-	movl $500, %ecx
-	rep stosq
 1:
 	jmp 1b
 
@@ -102,14 +156,40 @@ start64:
  *   - setup_identity_mapping - setup identity mapping for lower 2Mb of physical
  *                              memory, it loads cr3 with pml4 adddress and
  *                              sets PAE bit in cr4, but doesn't enable paging.
+ *   - memcpy - takes destination address, source address and size, and copies
+ *              size bytes from source to destination
  */
+
+	.code32
+memcpy:
+	pushl %edi
+	pushl %esi
+	movl 12(%esp), %edi
+	movl 16(%esp), %esi
+	movl 20(%esp), %ecx
+	rep movsb
+	popl %esi
+	popl %edi
+	ret
+
+strlen:
+	pushl %edi
+	movl 8(%esp), %edi
+	xorl %eax, %eax
+	movl $-1, %ecx
+	repne scasb
+	negl %ecx
+	subl $2, %ecx
+	popl %edi
+	movl %ecx, %eax
+	ret
+
 
 #define PTE_PRESENT (1 << 0)
 #define PTE_WRITE   (1 << 1)
 #define PTE_LARGE   (1 << 7)
 #define CR4_PAE     (1 << 5)
 
-	.code32
 setup_identity_mapping:
 	pushl $setup_mapping
 	call videomem_puts
@@ -125,6 +205,8 @@ setup_identity_mapping:
 
 	movl $(PTE_LARGE | PTE_PRESENT | PTE_WRITE), %eax
 	movl %eax, pd
+	orl $0x200000, %eax
+	movl %eax, pd + 8
 
 	movl %cr4, %eax
 	orl $CR4_PAE, %eax
@@ -185,6 +267,14 @@ fail:
 halt:	jmp halt
 
 
+not_multiboot:
+	.asciz "Not a multiboot compatible bootloader!\n";
+no_memory_map:
+	.asciz "No memory map provided!\n";
+memory_map_too_large:
+	.asciz "Memory map is too large!\n";
+cmdline_too_long:
+	.asciz "Cmdline is too long, drop it.\n"
 zeroing_bss:
 	.asciz "Zeroing bss...\n"
 enable_64bit_gdt:
@@ -200,7 +290,7 @@ no_extended_cpuid:
 x86_64_not_available:
 	.asciz "Long mode is not available!\n"
 setup_mapping:
-	.asciz "Setup identity mapping for lower 2Mb physical addresses..."
+	.asciz "Setup identity mapping for lower 2Mb physical addresses...\n"
 enter_long_mode:
 	.asciz "Enter long mode...\n"
 enable_paging:
@@ -214,6 +304,10 @@ pml4:
 pdtp:
 	.space 0x1000
 pd:
+	.space 0x1000
+mmap:
+	.space 0x1000
+cmd:
 	.space 0x1000
 
 	.space 0x1000
