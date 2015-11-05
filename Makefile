@@ -2,10 +2,11 @@ CC ?= gcc
 LD ?= ld
 
 CFLAGS := -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -ffreestanding -O3 \
-	-Wall -Wextra -Werror -pedantic
+	-Wall -Wextra -Werror -pedantic -std=c99
 LFLAGS := -s -nostdlib -nostdinc
 
-SRC := main.c list.c console.c vga.c string.c stdio.c
+SRC := main.c list.c console.c vga.c string.c stdio.c ctype.c stdlib.c \
+	vsnprintf.c
 OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 
