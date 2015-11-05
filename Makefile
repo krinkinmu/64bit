@@ -5,7 +5,7 @@ CFLAGS := -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -ffreestanding -O3 \
 	-Wall -Wextra -Werror -pedantic
 LFLAGS := -s -nostdlib -nostdinc
 
-SRC := main.c 
+SRC := main.c list.c console.c vga.c string.c stdio.c
 OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 
