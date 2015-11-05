@@ -17,3 +17,10 @@ size_t strlen(const char *str)
 	while (*pos) ++pos;
 	return pos - str;
 }
+
+char *strchr(const char *str, int c)
+{
+	while (*str && *str != c)
+		++str;
+	return *str ? (char *)str : 0;
+}
