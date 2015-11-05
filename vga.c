@@ -10,7 +10,7 @@ static unsigned row, col;
 
 static void newline(void)
 {
-	char * const ptr = VGAMEM + 2 * row * col;
+	char * const ptr = VGAMEM + 2 * row * COLS;
 	unsigned i;
 
 	for (i = 0; i != 2 * COLS; i += 2) {
