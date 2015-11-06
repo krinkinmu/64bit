@@ -204,9 +204,15 @@ setup_identity_mapping:
 	movl %eax, pdtp
 
 	movl $(PTE_LARGE | PTE_PRESENT | PTE_WRITE), %eax
-	movl %eax, pd
+	lea pd, %edx
+	movl $512, %ecx
+
+1:
+	movl %eax, (%edx)
+	addl $0x200000, %eax
+	addl $8, %edx
 	orl $0x200000, %eax
-	movl %eax, pd + 8
+	loop 1b
 
 	movl %cr4, %eax
 	orl $CR4_PAE, %eax
@@ -299,11 +305,11 @@ enable_paging:
 
 	.bss
 	.align 0x1000
-pml4:
+pd:
 	.space 0x1000
 pdtp:
 	.space 0x1000
-pd:
+pml4:
 	.space 0x1000
 mmap:
 	.space 0x1000
