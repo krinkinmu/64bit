@@ -108,4 +108,24 @@ videomem_clrscr:
 	movl $(COLS * ROWS / 2), %ecx
 	rep stosl
 	popl %edi
+
+	movw $0x3cc, %dx
+	inb %dx, %al
+	xorb $1, %al
+	movw $0x3c2, %dx
+	out %al, %dx
+
+	movw $0x3b4, %dx
+	movb $0x0a, %al
+	outb %al, %dx
+	movw $0x3b5, %dx
+	movb $(1 << 5), %al
+	outb %al, %dx
+
+	movw $0x3b4, %dx
+	movb $0x0b, %al
+	outb %al, %dx
+	movw $0x3b5, %dx
+	movb $0, %al
+	outb %al, %dx
 	ret
