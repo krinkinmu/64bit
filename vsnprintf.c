@@ -1,8 +1,9 @@
 #include "vsnprintf.h"
-#include <inttypes.h>
 #include "string.h"
 #include "stdlib.h"
 #include "ctype.h"
+
+#include <inttypes.h>
 
 enum format_flag {
 	FF_SIGNED = (1 << 0),
@@ -298,7 +299,7 @@ int vsnprintf(char *buf, const size_t size, const char *fmt, va_list args)
 
 			switch (spec.type) {
 			case FT_PTR:
-				value = (uintmax_t)va_arg(args, void *);
+				value = (uintptr_t)va_arg(args, void *);
 				break;
 			case FT_LLONG:
 				value = va_arg(args, long long);
