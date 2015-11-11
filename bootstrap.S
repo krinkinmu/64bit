@@ -6,14 +6,14 @@
 	.global start32
 	.extern main
 
-mboot_header:
 	.align 4
+mboot_header:
 	.long MB_HEADER_MAGIC
 	.long MB_HEADER_FLAGS
 	.long MB_HEADER_CKSUM
 	.long mboot_header
 	.long text_begin
-	.long bss_begin
+	.long data_end
 	.long bss_end
 	.long start32
 
@@ -33,24 +33,11 @@ gdt_ptr:
 start32:
 	movl $stack_top, %esp
 
-	pushl $0
+	pushl $2
 	popf
 
 	pushl %eax
-
 	call videomem_clrscr
-
-	pushl $zeroing_bss
-	call videomem_puts
-	addl $4, %esp
-
-	xorl %eax, %eax
-	movl bss_begin, %edi
-	movl bss_end, %ecx
-	subl %edi, %ecx
-	shrl $2, %ecx
-	rep stosl
-
 	popl %eax
 	cmpl $0x2badb002, %eax
 	je 1f

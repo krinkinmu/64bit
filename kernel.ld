@@ -9,11 +9,15 @@ SECTIONS
 	text_begin = .;
 	.header : { *(.header) }
 	.text : { *(.text) }
+
+	. = ALIGN(0x1000);
 	data_begin = .;
 	.rodata : { *(.rodata) }
 	.data : { *(.data) }
+	data_end = .;
+
+	. = ALIGN(0x1000);
 	bss_begin = .;
 	.bss : { *(.bss) }
-	. = ALIGN(0x1000);
 	bss_end = .;
 }
