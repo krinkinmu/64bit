@@ -1,3 +1,4 @@
+#include "balloc.h"
 #include "stdio.h"
 #include "vga.h"
 
@@ -17,12 +18,17 @@ static void print_mmap(const char *ptr)
 					(const struct mmap_entry *)mmap;
 
 		if (!entry->size)
-			return;
+			break;
 
 		mmap += entry->size + sizeof(entry->size);
-		printf("region: %#llx-%#llx of type %u\n", entry->addr,
-			entry->addr + entry->length - 1, entry->type);
+
+		if (entry->type == 1)
+			balloc_add_area(entry->addr, entry->length);
+		else
+			balloc_reserve_area(entry->addr, entry->length);
 	}
+
+	balloc_print_areas();
 }
 
 void main(const void *ptr, const char *cmdline)
