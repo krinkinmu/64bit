@@ -43,7 +43,7 @@ start32:
 	je 1f
 
 	pushl $not_multiboot
-	call fail
+	jmp fail
 
 1:
 	movl (%ebx), %edi
@@ -51,7 +51,7 @@ start32:
 	jne 1f
 
 	pushl $no_memory_map
-	call fail
+	jmp fail
 
 1:
 	movl 44(%ebx), %eax
@@ -59,7 +59,7 @@ start32:
 	jbe 1f
 
 	pushl $memory_map_too_large
-	call fail
+	jmp fail
 
 1:
 	pushl %eax
@@ -198,7 +198,6 @@ setup_identity_mapping:
 	movl %eax, (%edx)
 	addl $0x200000, %eax
 	addl $8, %edx
-	orl $0x200000, %eax
 	loop 1b
 
 	movl %cr4, %eax
@@ -227,7 +226,7 @@ check_long_mode:
 	jne 1f
 
 	movl $cpuid_not_available, (%esp)
-	call fail
+	jmp fail
 1:
 	movl $checking_x86_64, (%esp)
 	call videomem_puts
@@ -238,7 +237,7 @@ check_long_mode:
 	jnb 1f
 
 	movl $no_extended_cpuid, (%esp)
-	call fail
+	jmp fail
 
 1:
 	movl $0x80000001, %eax
@@ -247,7 +246,7 @@ check_long_mode:
 	jnz 1f
 
 	movl $x86_64_not_available, (%esp)
-	call fail
+	jmp fail
 
 1:
 	addl $4, %esp
@@ -255,7 +254,6 @@ check_long_mode:
 
 
 fail:
-	addl $4, %esp
 	call videomem_puts
 halt:	jmp halt
 
