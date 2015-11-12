@@ -84,6 +84,7 @@ static void balloc_pool_insert(struct balloc_pool *pool,
 	pool->size -= last - first - 1;
 }
 
+/*
 static void balloc_pool_delete(struct balloc_pool *pool,
 			unsigned long long addr, unsigned long long size)
 {
@@ -114,15 +115,10 @@ static void balloc_pool_delete(struct balloc_pool *pool,
 	area->size = addr - area->addr;
 	++pool->size;
 }
+*/
 
 void balloc_add_area(unsigned long long addr, unsigned long long size)
 { balloc_pool_insert(&avail, addr, size); }
-
-void balloc_reserve_area(unsigned long long addr, unsigned long long size)
-{
-	balloc_pool_insert(&avail, addr, size);
-	balloc_pool_delete(&avail, addr, size);
-}
 
 void balloc_print_areas(void)
 {

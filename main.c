@@ -24,8 +24,6 @@ static void print_mmap(const char *ptr)
 
 		if (entry->type == 1)
 			balloc_add_area(entry->addr, entry->length);
-		else
-			balloc_reserve_area(entry->addr, entry->length);
 	}
 
 	balloc_print_areas();
