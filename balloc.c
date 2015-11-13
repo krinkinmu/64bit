@@ -1,3 +1,4 @@
+#include "kernel.h"
 #include "balloc.h"
 #include "string.h"
 #include "stdio.h"
@@ -13,6 +14,10 @@ struct balloc_pool {
 	struct balloc_area *areas;
 	int max_size;
 	int size;
+};
+
+struct balloc_alloc_header {
+	size_t size;
 };
 
 static struct balloc_area available_areas[MAX_AREAS_COUNT];
@@ -60,7 +65,7 @@ static void balloc_pool_insert(struct balloc_pool *pool,
 			unsigned long long addr, unsigned long long size)
 {
 	const int first = balloc_lower_bound(pool, addr);
-	const int last = balloc_upper_bound(pool, addr);
+	const int last = balloc_upper_bound(pool, addr + size);
 
 	if (first != last) {
 		struct balloc_area *last_area;
@@ -84,7 +89,6 @@ static void balloc_pool_insert(struct balloc_pool *pool,
 	pool->size -= last - first - 1;
 }
 
-/*
 static void balloc_pool_delete(struct balloc_pool *pool,
 			unsigned long long addr, unsigned long long size)
 {
@@ -115,7 +119,64 @@ static void balloc_pool_delete(struct balloc_pool *pool,
 	area->size = addr - area->addr;
 	++pool->size;
 }
-*/
+
+static void *balloc_alloc_aligned_from_pool(struct balloc_pool *pool,
+			unsigned long long low, unsigned long long high,
+			size_t size, size_t align)
+{
+	static const size_t sz = sizeof(struct balloc_alloc_header);
+
+	const struct balloc_alloc_header header = { size };
+	const int first = balloc_lower_bound(pool, low);
+	const int last = balloc_upper_bound(pool, high);
+	int i;
+
+	for (i = first; i != last; ++i) {
+		struct balloc_area *area = &(pool->areas[i]);
+		unsigned long long start = area->addr;
+		unsigned long long end = start + area->size;
+
+		if (start < low) start = low;
+		if (end > high) end = high;
+
+		start = ALIGN(start + sz, align);
+		if (start >= end || end - start < size)
+			continue;
+
+		memcpy((void *)(start - sz), &header, sz);
+		balloc_pool_delete(pool, start - sz, size + sz);
+		return (void *)start;
+	}
+	return 0;
+}
+
+static void balloc_free_to_pool(struct balloc_pool *pool, const void *ptr)
+{
+	static const size_t sz = sizeof(struct balloc_alloc_header);
+	
+	const char *addr = (const char *)ptr - sz;
+	struct balloc_alloc_header header;
+	unsigned long long size;
+
+	memcpy(&header, addr, sz);
+	size = header.size;
+	balloc_pool_insert(pool, (unsigned long long)addr, size + sz);
+}
+
+void *balloc_alloc_aligned(unsigned long long low, unsigned long long high,
+			size_t size, size_t align)
+{
+	if (low >= high || high - low < size)
+		return 0;
+
+	return balloc_alloc_aligned_from_pool(&avail, low, high, size, align);
+}
+
+void *balloc_alloc(unsigned long long low, unsigned long long high, size_t size)
+{ return balloc_alloc_aligned(low, high, size, ALIGNOF(uintmax_t)); }
+
+void balloc_free(const void *ptr)
+{ balloc_free_to_pool(&avail, ptr); }
 
 void balloc_add_area(unsigned long long addr, unsigned long long size)
 { balloc_pool_insert(&avail, addr, size); }
