@@ -1,4 +1,5 @@
 #include "balloc.h"
+#include "string.h"
 #include "stdio.h"
 #include "vga.h"
 
@@ -31,9 +32,16 @@ static void print_mmap(const char *ptr)
 
 void main(const void *ptr, const char *cmdline)
 {
+	char *cmd;
 	setup_vga();
-	printf("cmdline: %s\n", cmdline);
 	print_mmap(ptr);
+
+	cmd = balloc_alloc(0, ~0, strlen(cmdline) + 1);
+	memcpy(cmd, cmdline, strlen(cmdline) + 1);
+	printf("cmdline: %s\n", cmd);
+	balloc_print_areas();
+	balloc_free(cmd);
+	balloc_print_areas();
 
 	while (1);
 }
