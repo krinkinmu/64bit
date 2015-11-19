@@ -2,18 +2,17 @@
 #include "vga.h"
 
 static char *const VGAMEM = (char *)0xb8000;
-static const unsigned ROWS = 25;
-static const unsigned COLS = 80;
+static const int ROWS = 25;
+static const int COLS = 80;
 static const char CATTR = 7;
 
-static unsigned row, col;
+static int row, col;
 
 static void newline(void)
 {
 	char * const ptr = VGAMEM + 2 * row * COLS;
-	unsigned i;
 
-	for (i = 0; i != 2 * COLS; i += 2) {
+	for (int i = 0; i != 2 * COLS; i += 2) {
 		*(ptr + i) = ' ';
 		*(ptr + i + 1) = CATTR;
 	}
@@ -41,9 +40,7 @@ static void putchar(int c)
 
 static void clrscr(void)
 {
-	unsigned i;
-
-	for (i = 0; i != 2 * ROWS * COLS; i += 2) {
+	for (int i = 0; i != 2 * ROWS * COLS; i += 2) {
 		*(VGAMEM + i) = ' ';
 		*(VGAMEM + i + 1) = CATTR;
 	}
@@ -51,9 +48,7 @@ static void clrscr(void)
 
 static void write(const char *str, unsigned long size)
 {
-	unsigned long i;
-
-	for (i = 0; i != size; ++i)
+	for (unsigned long i = 0; i != size; ++i)
 		putchar(str[i]);
 }
 

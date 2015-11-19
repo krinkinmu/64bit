@@ -16,6 +16,7 @@ static inline uintmax_t __align_down(uintmax_t x, uintmax_t a)
 static inline uintmax_t __align_up(uintmax_t x, uintmax_t a)
 { return __align_down(x + a - 1, a); }
 
-#define ALIGN(x, align) __align_up(x, align)
+#define ALIGN(x, align)      __align_up(x, align)
+#define ALIGN_DOWN(x, align) __align_down(x, align)
 
 #endif /*__KERNEL_H__*/

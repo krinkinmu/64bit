@@ -7,7 +7,7 @@ void main(const void *ptr, const char *cmdline)
 	setup_vga();
 
 	printf("cmdline: %s\n", cmdline);
-	balloc_build_mmap(ptr);
+	setup_memory(ptr);
 
 	while (1);
 }

@@ -6,7 +6,7 @@ CFLAGS := -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -ffreestanding -O3 \
 LFLAGS := -s -nostdlib -nostdinc
 
 SRC := main.c list.c console.c vga.c string.c stdio.c ctype.c stdlib.c \
-	vsnprintf.c balloc.c
+	vsnprintf.c balloc.c memory.c
 OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 

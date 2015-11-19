@@ -150,14 +150,14 @@ static int untoa(uintmax_t value, char *str, int base)
 {
 	static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 
-	unsigned pos = 0, i;
+	int pos = 0;
 
 	do {
 		str[pos++] = digits[value % base];
 		value /= base;
 	} while (value);
 
-	for (i = 0; i != pos / 2; ++i) {
+	for (int i = 0; i != pos / 2; ++i) {
 		const char tmp = str[i];
 
 		str[i] = str[pos - i - 1];

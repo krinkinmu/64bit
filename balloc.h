@@ -12,7 +12,7 @@ struct mmap_entry {
 	unsigned type;
 } __attribute__((__packed__));
 
-void balloc_build_mmap(const struct mmap_entry *entry);
+void setup_memory(const struct mmap_entry *entry);
 void *balloc_alloc_aligned(unsigned long long low, unsigned long long high,
 			size_t size, size_t align);
 void *balloc_alloc(unsigned long long low, unsigned long long high,
