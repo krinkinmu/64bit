@@ -3,7 +3,7 @@
 #include "string.h"
 #include "stdio.h"
 
-#define MAX_AREAS_COUNT 128
+#define MAX_AREAS_COUNT 256
 
 struct balloc_area {
 	unsigned long long addr;
@@ -20,8 +20,11 @@ struct balloc_alloc_header {
 	size_t size;
 };
 
-static struct balloc_area available_areas[MAX_AREAS_COUNT];
-static struct balloc_pool avail = { available_areas, MAX_AREAS_COUNT, 0 };
+static struct balloc_area all_areas[MAX_AREAS_COUNT];
+static struct balloc_area free_areas[MAX_AREAS_COUNT];
+
+static struct balloc_pool all = { all_areas, MAX_AREAS_COUNT, 0 };
+static struct balloc_pool free = { free_areas, MAX_AREAS_COUNT, 0 };
 
 static int balloc_lower_bound(const struct balloc_pool *pool,
 			unsigned long long addr)
@@ -163,30 +166,61 @@ static void balloc_free_to_pool(struct balloc_pool *pool, const void *ptr)
 	balloc_pool_insert(pool, (unsigned long long)addr, size + sz);
 }
 
+static void balloc_add_free_area(unsigned long long addr,
+			unsigned long long size)
+{
+	balloc_pool_insert(&all, addr, size);
+	balloc_pool_insert(&free, addr, size);
+}
+
+static void balloc_add_busy_area(unsigned long long addr,
+			unsigned long long size)
+{
+	balloc_pool_insert(&all, addr, size);
+	balloc_pool_insert(&free, addr, size);
+	balloc_pool_delete(&free, addr, size);
+}
+
+void balloc_build_mmap(const struct mmap_entry *entry)
+{
+	const char *raw = (const char *)entry;
+	const struct mmap_entry *ptr;
+
+	while (1) {
+		ptr = (const struct mmap_entry *)raw;
+		if (!ptr->size)
+			break;
+
+		raw += ptr->size + sizeof(ptr->size);
+		if (ptr->type == MMAP_AVAILABLE)
+			balloc_add_free_area(ptr->addr, ptr->length);
+		printf("memory range: %#llx-%#llx type: %u\n",
+			ptr->addr, ptr->addr + ptr->length - 1, ptr->type);
+	}
+
+	raw = (const char *)entry;
+	while (1) {
+		ptr = (const struct mmap_entry *)raw;
+		if (!ptr->size)
+			break;
+
+		raw += ptr->size + sizeof(ptr->size);
+		if (ptr->type != MMAP_AVAILABLE)
+			balloc_add_busy_area(ptr->addr, ptr->length);
+	}
+}
+
 void *balloc_alloc_aligned(unsigned long long low, unsigned long long high,
 			size_t size, size_t align)
 {
 	if (low >= high || high - low < size)
 		return 0;
 
-	return balloc_alloc_aligned_from_pool(&avail, low, high, size, align);
+	return balloc_alloc_aligned_from_pool(&free, low, high, size, align);
 }
 
 void *balloc_alloc(unsigned long long low, unsigned long long high, size_t size)
 { return balloc_alloc_aligned(low, high, size, ALIGNOF(uintmax_t)); }
 
 void balloc_free(const void *ptr)
-{ balloc_free_to_pool(&avail, ptr); }
-
-void balloc_add_area(unsigned long long addr, unsigned long long size)
-{ balloc_pool_insert(&avail, addr, size); }
-
-void balloc_print_areas(void)
-{
-	int i;
-
-	for (i = 0; i != avail.size; ++i)
-		printf("available memory region: %#llx-%#llx\n",
-			avail.areas[i].addr,
-			avail.areas[i].addr + avail.areas[i].size - 1);
-}
+{ balloc_free_to_pool(&free, ptr); }

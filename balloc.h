@@ -3,9 +3,16 @@
 
 #include <stddef.h>
 
-void balloc_add_area(unsigned long long addr, unsigned long long size);
-void balloc_print_areas(void);
+#define MMAP_AVAILABLE 1
 
+struct mmap_entry {
+	unsigned size;
+	unsigned long long addr;
+	unsigned long long length;
+	unsigned type;
+} __attribute__((__packed__));
+
+void balloc_build_mmap(const struct mmap_entry *entry);
 void *balloc_alloc_aligned(unsigned long long low, unsigned long long high,
 			size_t size, size_t align);
 void *balloc_alloc(unsigned long long low, unsigned long long high,
