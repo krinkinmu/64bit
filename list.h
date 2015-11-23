@@ -1,6 +1,7 @@
 #ifndef __LIST_H__
 #define __LIST_H__
 
+#include <stdbool.h>
 #include "kernel.h"
 
 struct list_head {
@@ -16,7 +17,7 @@ void list_init(struct list_head *head);
 void list_add(struct list_head *new, struct list_head *head);
 void list_add_tail(struct list_head *new, struct list_head *head);
 void list_del(struct list_head *entry);
-int list_empty(const struct list_head *head);
+bool list_empty(const struct list_head *head);
 struct list_head *list_first(struct list_head *head);
 size_t list_size(const struct list_head *head);
 

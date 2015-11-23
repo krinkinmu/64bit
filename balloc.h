@@ -2,6 +2,7 @@
 #define __BOOT_ALLOCATOR_H__
 
 #include <stddef.h>
+#include <stdbool.h>
 
 #define MMAP_AVAILABLE 1
 
@@ -18,6 +19,6 @@ void *balloc_alloc_aligned(unsigned long long low, unsigned long long high,
 void *balloc_alloc(unsigned long long low, unsigned long long high,
 			size_t size);
 void balloc_free(const void *ptr);
-int balloc_is_free(unsigned long long addr, size_t size);
+bool balloc_is_free(unsigned long long addr, size_t size);
 
 #endif /*__BOOT_ALLOCATOR_H__*/

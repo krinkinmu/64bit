@@ -27,7 +27,7 @@ static void __list_del(struct list_head *prev, struct list_head *next)
 void list_del(struct list_head *entry)
 { __list_del(entry->prev, entry->next); }
 
-int list_empty(const struct list_head *head)
+bool list_empty(const struct list_head *head)
 { return head->next == head; }
 
 struct list_head *list_first(struct list_head *head)
