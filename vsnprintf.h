@@ -1,5 +1,5 @@
 #ifndef __VSNPRINTF_H__
-#define __VSNPTRINF_H__
+#define __VSNPRINTF_H__
 
 #include <stddef.h>
 #include <stdarg.h>
