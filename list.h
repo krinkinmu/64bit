@@ -17,5 +17,7 @@ void list_add(struct list_head *new, struct list_head *head);
 void list_add_tail(struct list_head *new, struct list_head *head);
 void list_del(struct list_head *entry);
 int list_empty(const struct list_head *head);
+struct list_head *list_first(struct list_head *head);
+size_t list_size(const struct list_head *head);
 
 #endif /*__LIST_H__*/

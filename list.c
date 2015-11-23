@@ -29,3 +29,16 @@ void list_del(struct list_head *entry)
 
 int list_empty(const struct list_head *head)
 { return head->next == head; }
+
+struct list_head *list_first(struct list_head *head)
+{ return head->next; }
+
+size_t list_size(const struct list_head *head)
+{
+	size_t size = 0;
+
+	for (const struct list_head *pos = head->next; pos != head;
+		pos = pos->next)
+		++size;
+	return size;
+}
