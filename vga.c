@@ -20,6 +20,8 @@ static void newline(void)
 
 static void putchar(int c)
 {
+	static const int TAB_WIDTH = 8;
+
 	const unsigned pos = 2 * (row * COLS + col);
 
 	switch (c) {
@@ -34,6 +36,10 @@ static void putchar(int c)
 		newline();
 	case '\r':
 		col = 0;
+		break;
+	case '\t':
+		for (int i = 0; i != TAB_WIDTH; ++i)
+			putchar(' ');
 		break;
 	}
 }
