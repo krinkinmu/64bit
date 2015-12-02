@@ -4,16 +4,12 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#define MMAP_AVAILABLE 1
+typedef void (*region_fptr_t)(unsigned long long addr, unsigned long long size);
 
-struct mmap_entry {
-	unsigned size;
-	unsigned long long addr;
-	unsigned long long length;
-	unsigned type;
-} __attribute__((__packed__));
+void setup_memory(void);
 
-void setup_memory(const struct mmap_entry *entry);
+void balloc_for_each_region(region_fptr_t exec);
+void balloc_for_each_free_region(region_fptr_t exec);
 void *balloc_alloc_aligned(unsigned long long low, unsigned long long high,
 			size_t size, size_t align);
 void *balloc_alloc(unsigned long long low, unsigned long long high,

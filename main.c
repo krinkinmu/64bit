@@ -1,14 +1,12 @@
-#include "balloc.h"
 #include "memory.h"
 #include "stdio.h"
 #include "vga.h"
 
-void main(const void *ptr, const char *cmdline)
+void main(void)
 {
 	setup_vga();
-
-	printf("cmdline: %s\n", cmdline);
-	setup_memory(ptr);
+	setup_memory();
+	setup_buddy();
 	dump_buddy_allocator_state();
 
 	while (1);

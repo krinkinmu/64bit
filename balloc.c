@@ -5,6 +5,14 @@
 #include "stdio.h"
 
 #define MAX_AREAS_COUNT 256
+#define MMAP_AVAILABLE  1
+
+struct mmap_entry {
+	unsigned size;
+	unsigned long long addr;
+	unsigned long long length;
+	unsigned type;
+} __attribute__((__packed__));
 
 struct balloc_area {
 	unsigned long long addr;
@@ -164,9 +172,10 @@ static void balloc_free_to_pool(struct balloc_pool *pool, const void *ptr)
 	balloc_pool_insert(pool, (unsigned long long)addr, header.size + sz);
 }
 
-void setup_memory(const struct mmap_entry *entry)
+void setup_memory(void)
 {
-	const char *raw = (const char *)entry;
+	extern const char mmap[];
+	const char *raw = mmap;
 
 	while (1) {
 		const struct mmap_entry *ptr = (const struct mmap_entry *)raw;
@@ -181,7 +190,7 @@ void setup_memory(const struct mmap_entry *entry)
 			ptr->addr, ptr->addr + ptr->length - 1, ptr->type);
 	}
 
-	raw = (const char *)entry;
+	raw = mmap;
 	while (1) {
 		const struct mmap_entry *ptr = (const struct mmap_entry *)raw;
 
@@ -197,10 +206,19 @@ void setup_memory(const struct mmap_entry *entry)
 	extern char bss_end[];
 	balloc_pool_delete(&free, (unsigned long long)text_begin,
 		(unsigned long long)(bss_end - text_begin));
-
-	for (int i = 0; i != all.size; ++i)
-		memory_node_add_at(all.areas[i].addr, all.areas[i].size);
 }
+
+static void balloc_iterate(struct balloc_pool *pool, region_fptr_t exec)
+{
+	for (int i = 0; i != pool->size; ++i)
+		exec(pool->areas[i].addr, pool->areas[i].size);
+}
+
+void balloc_for_each_region(region_fptr_t exec)
+{ balloc_iterate(&all, exec); }
+
+void balloc_for_each_free_region(region_fptr_t exec)
+{ balloc_iterate(&free, exec); }
 
 void *balloc_alloc_aligned(unsigned long long low, unsigned long long high,
 			size_t size, size_t align)

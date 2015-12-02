@@ -1,6 +1,7 @@
 #ifndef __MEMORY_H__
 #define __MEMORY_H__
 
+#include "balloc.h"
 #include "list.h"
 
 #define PAGE_BITS 12
@@ -39,7 +40,6 @@ struct memory_node {
 	struct list_head free_list[BUDDY_ORDERS];
 };
 
-void memory_node_add_at(unsigned long long addr, unsigned long long size);
 struct memory_node *memory_node_get(unsigned long id);
 
 static inline struct memory_node *page_node(const struct page * const page)
@@ -51,6 +51,7 @@ pfn_t page2pfn(const struct page * const page);
 struct page *alloc_pages_node(int order, struct memory_node *node);
 void free_pages_node(struct page *pages, int order, struct memory_node *node);
 
+void setup_buddy(void);
 void dump_buddy_allocator_state(void);
 
 #endif /*__MEMORY_H__*/
