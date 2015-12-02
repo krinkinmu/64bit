@@ -82,7 +82,7 @@ start32:
 
 	pushl %eax
 	pushl %ebx
-	pushl $cmd
+	pushl $cmdline
 	call memcpy
 	addl $12, %esp
 	jmp 1f
@@ -128,8 +128,6 @@ start64:
 	movw %ax, %gs
 	movw %ax, %ss
 
-	movq $mmap, %rdi
-	movq $cmd, %rsi
 	call main
 
 1:
@@ -289,6 +287,8 @@ enable_paging:
 
 
 	.bss
+	.global cmdline
+	.global mmap
 	.align 0x1000
 pd:
 	.space 0x1000
@@ -298,7 +298,7 @@ pml4:
 	.space 0x1000
 mmap:
 	.space 0x1000
-cmd:
+cmdline:
 	.space 0x1000
 
 	.space 0x1000
