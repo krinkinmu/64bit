@@ -174,38 +174,38 @@ static void balloc_free_to_pool(struct balloc_pool *pool, const void *ptr)
 
 void setup_memory(void)
 {
-	extern const char mmap[];
-	const char *raw = mmap;
+	extern const char *mmap[];
+	extern const unsigned long mmap_len[];
 
-	while (1) {
-		const struct mmap_entry *ptr = (const struct mmap_entry *)raw;
+	const char *begin = mmap[0];
+	const char *end = begin + mmap_len[0];
 
-		if (!ptr->size)
-			break;
+	while (begin < end) {
+		const struct mmap_entry *ptr =
+					(const struct mmap_entry *)begin;
 
-		raw += ptr->size + sizeof(ptr->size);
+		begin += ptr->size + sizeof(ptr->size);
 		balloc_pool_insert(&all, ptr->addr, ptr->length);
 		balloc_pool_insert(&free, ptr->addr, ptr->length);
 		printf("memory range: %#llx-%#llx type: %u\n",
 			ptr->addr, ptr->addr + ptr->length - 1, ptr->type);
 	}
 
-	raw = mmap;
-	while (1) {
-		const struct mmap_entry *ptr = (const struct mmap_entry *)raw;
+	begin = mmap[0];
+	while (begin < end) {
+		const struct mmap_entry *ptr =
+					(const struct mmap_entry *)begin;
 
-		if (!ptr->size)
-			break;
-
-		raw += ptr->size + sizeof(ptr->size);
+		begin += ptr->size + sizeof(ptr->size);
 		if (ptr->type != MMAP_AVAILABLE)
 			balloc_pool_delete(&free, ptr->addr, ptr->length);
 	}
 
-	extern char text_begin[];
-	extern char bss_end[];
-	balloc_pool_delete(&free, (unsigned long long)text_begin,
-		(unsigned long long)(bss_end - text_begin));
+	extern char text_phys_begin[];
+	extern char bss_phys_end[];
+
+	balloc_pool_delete(&free, (unsigned long long)text_phys_begin,
+		(unsigned long long)(bss_phys_end - text_phys_begin));
 }
 
 static void balloc_iterate(struct balloc_pool *pool, region_fptr_t exec)

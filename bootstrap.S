@@ -1,24 +1,28 @@
 #define MB_HEADER_MAGIC 0x1BADB002
 #define MB_HEADER_FLAGS ((1 << 16) | (1 << 1))
 #define MB_HEADER_CKSUM -(MB_HEADER_MAGIC + MB_HEADER_FLAGS)
+#define PAGE_SIZE       0x1000
 
-	.section .header, "a"
+	.section .bootstrap, "ax"
+	.code32
 	.global start32
 	.extern main
 
-	.align 4
+	.align 16
+start32:
+	jmp 1f
+
+	.align 16
 mboot_header:
 	.long MB_HEADER_MAGIC
 	.long MB_HEADER_FLAGS
 	.long MB_HEADER_CKSUM
 	.long mboot_header
-	.long text_begin
-	.long data_end
-	.long bss_end
+	.long text_phys_begin
+	.long data_phys_end
+	.long bss_phys_end
 	.long start32
 
-	.text
-	.code32
 	.align 4
 gdt:
         .quad 0x0000000000000000
@@ -30,12 +34,19 @@ gdt_ptr:
 	.word (gdt_ptr - gdt - 1)
 	.quad gdt
 
-start32:
-	movl $stack_top, %esp
+	.global cmdline, mmap, mmap_len
+cmdline:
+	.quad 0
+mmap:
+	.quad 0
+mmap_len:
+	.quad 0
 
-	pushl $2
-	popf
+	.space 0x100
+bootstrap_stack_top:
 
+1:
+	movl $bootstrap_stack_top, %esp
 	pushl %eax
 	call videomem_clrscr
 	popl %eax
@@ -55,41 +66,16 @@ start32:
 
 1:
 	movl 44(%ebx), %eax
-	cmpl $0x1000, %eax
-	jbe 1f
+	movl %eax, mmap_len
 
-	pushl $memory_map_too_large
-	jmp fail
-
-1:
-	pushl %eax
 	movl 48(%ebx), %eax
-	pushl %eax
-	pushl $mmap
-	call memcpy
-	addl $12, %esp
+	movl %eax, mmap
 
 	test $(1 << 2), %edi
 	je 1f
 
-	movl 16(%ebx), %ebx
-	pushl %ebx
-	call strlen
-	popl %ebx
-
-	cmpl $0x1000, %eax
-	jae 2f
-
-	pushl %eax
-	pushl %ebx
-	pushl $cmdline
-	call memcpy
-	addl $12, %esp
-	jmp 1f
-2:
-	pushl $cmdline_too_long
-	call videomem_puts
-	addl $4, %esp
+	movl 16(%ebx), %eax
+	movl %eax, cmdline
 
 1:
 	call check_long_mode
@@ -119,56 +105,17 @@ start32:
 	lgdt gdt_ptr
 	ljmp $0x18, $start64
 
-	.code64
-start64:
-	movw $0x20, %ax
-	movw %ax, %ds
-	movw %ax, %es
-	movw %ax, %fs
-	movw %ax, %gs
-	movw %ax, %ss
-
-	call main
-
-1:
-	jmp 1b
-
 /**
  * Utlities:
  *   - fail function - prints messages and halts
  *   - check_long_mode function - checks weather long mode available or not
  *                                and fails if it's not available
- *   - setup_identity_mapping - setup identity mapping for lower 2Mb of physical
+ *   - setup_identity_mapping - setup identity mapping for lower 1G of physical
  *                              memory, it loads cr3 with pml4 adddress and
  *                              sets PAE bit in cr4, but doesn't enable paging.
- *   - memcpy - takes destination address, source address and size, and copies
- *              size bytes from source to destination
  */
 
 	.code32
-memcpy:
-	pushl %edi
-	pushl %esi
-	movl 12(%esp), %edi
-	movl 16(%esp), %esi
-	movl 20(%esp), %ecx
-	rep movsb
-	popl %esi
-	popl %edi
-	ret
-
-strlen:
-	pushl %edi
-	movl 8(%esp), %edi
-	xorl %eax, %eax
-	movl $-1, %ecx
-	repne scasb
-	negl %ecx
-	subl $2, %ecx
-	popl %edi
-	movl %ecx, %eax
-	ret
-
 
 #define PTE_PRESENT (1 << 0)
 #define PTE_WRITE   (1 << 1)
@@ -180,18 +127,22 @@ setup_identity_mapping:
 	call videomem_puts
 	addl $4, %esp
 
-	lea pdtp, %eax
+	movl $(bss_phys_begin + PAGE_SIZE), %eax
 	orl $(PTE_PRESENT | PTE_WRITE), %eax
-	movl %eax, pml4
 
-	lea pd, %eax
+	movl $bss_phys_begin, %edx
+	movl %eax, (%edx)
+	movl %eax, 2048(%edx)
+
+	movl $(bss_phys_begin + 2 * PAGE_SIZE), %eax
 	orl $(PTE_PRESENT | PTE_WRITE), %eax
-	movl %eax, pdtp
+
+	movl $(bss_phys_begin + PAGE_SIZE), %edx
+	movl %eax, (%edx)
 
 	movl $(PTE_LARGE | PTE_PRESENT | PTE_WRITE), %eax
-	lea pd, %edx
+	movl $(bss_phys_begin + 2 * PAGE_SIZE), %edx
 	movl $512, %ecx
-
 1:
 	movl %eax, (%edx)
 	addl $0x200000, %eax
@@ -202,7 +153,7 @@ setup_identity_mapping:
 	orl $CR4_PAE, %eax
 	movl %eax, %cr4
 
-	lea pml4, %eax
+	movl $bss_phys_begin, %eax
 	movl %eax, %cr3
 	ret
 
@@ -250,7 +201,6 @@ check_long_mode:
 	addl $4, %esp
 	ret
 
-
 fail:
 	call videomem_puts
 halt:	jmp halt
@@ -260,12 +210,6 @@ not_multiboot:
 	.asciz "Not a multiboot compatible bootloader!\n";
 no_memory_map:
 	.asciz "No memory map provided!\n";
-memory_map_too_large:
-	.asciz "Memory map is too large!\n";
-cmdline_too_long:
-	.asciz "Cmdline is too long, drop it.\n"
-zeroing_bss:
-	.asciz "Zeroing bss...\n"
 enable_64bit_gdt:
 	.asciz "Enable bootstrap 64 bit GDT...\n"
 checking_cpuid:
@@ -279,27 +223,33 @@ no_extended_cpuid:
 x86_64_not_available:
 	.asciz "Long mode is not available!\n"
 setup_mapping:
-	.asciz "Setup identity mapping for lower 2Mb physical addresses...\n"
+	.asciz "Setup identity mapping for lower 1G physical addresses...\n"
 enter_long_mode:
 	.asciz "Enter long mode...\n"
 enable_paging:
 	.asciz "Enable paging...\n"
 
+	.code64
+start64:
+	movw $0x20, %ax
+	movw %ax, %ds
+	movw %ax, %es
+	movw %ax, %fs
+	movw %ax, %gs
+	movw %ax, %ss
+
+	cld
+	movabsq $stack_top, %rax
+	movq %rax, %rsp
+	movabsq $main, %rax
+	call *%rax
+
+	cli
+1:
+	hlt
+	jmp 1b
 
 	.bss
-	.global cmdline
-	.global mmap
 	.align 0x1000
-pd:
-	.space 0x1000
-pdtp:
-	.space 0x1000
-pml4:
-	.space 0x1000
-mmap:
-	.space 0x1000
-cmdline:
-	.space 0x1000
-
-	.space 0x1000
+	.space 0x2000
 stack_top:

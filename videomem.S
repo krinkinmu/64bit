@@ -3,7 +3,7 @@
 #define ADDR 0xb8000
 #define ATTR 7
 
-	.text
+	.section .bootstrap, "ax"
 	.code32
 	.global videomem_puts, videomem_putchar, videomem_clrscr
 

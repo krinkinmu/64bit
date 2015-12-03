@@ -2,22 +2,29 @@ OUTPUT_FORMAT(elf64-x86-64)
 OUTPUT_ARCH(i386:x86-64)
 ENTRY(start32)
 
+PAGE_SIZE = 0x1000;
+VIRTUAL_BASE = 0xffff800000000000;
+
 SECTIONS
 {
 	. = 1M + SIZEOF_HEADERS;
 
-	text_begin = .;
-	.header : { *(.header) }
-	.text : { *(.text) }
+	text_phys_begin = .;
+	.bootstrap : { *(.bootstrap) }
 
-	. = ALIGN(0x1000);
-	data_begin = .;
+	. += VIRTUAL_BASE;
+	.text : AT(ADDR(.bootstrap) + SIZEOF(.bootstrap)) { *(.text) }
+
+	data_phys_begin = . - VIRTUAL_BASE;
 	.rodata : { *(.rodata) }
 	.data : { *(.data) }
-	data_end = .;
+	data_phys_end = . - VIRTUAL_BASE;
+	. = ALIGN(PAGE_SIZE);
 
-	. = ALIGN(0x1000);
-	bss_begin = .;
-	.bss : { *(.bss) }
-	bss_end = .;
+	bss_phys_begin = . - VIRTUAL_BASE;
+	.bss : {
+		. += 3 * PAGE_SIZE;
+		*(.bss)
+	}
+	bss_phys_end = . - VIRTUAL_BASE;
 }

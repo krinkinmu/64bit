@@ -1,9 +1,9 @@
 CC ?= gcc
 LD ?= ld
 
-CFLAGS := -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -ffreestanding -O3 \
-	-Wall -Wextra -Werror -pedantic -std=c99
-LFLAGS := -s -nostdlib -nostdinc
+CFLAGS := -m64 -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -ffreestanding \
+	-mcmodel=large -O3 -Wall -Wextra -Werror -pedantic -std=c99
+LFLAGS := -nostdlib -nostdinc
 
 SRC := main.c list.c console.c vga.c string.c stdio.c ctype.c stdlib.c \
 	vsnprintf.c balloc.c memory.c
@@ -19,7 +19,7 @@ kernel: $(AOBJ) $(OBJ) kernel.ld
 	ld $(LFLAGS) -T kernel.ld -o $@ $(AOBJ) $(OBJ)
 
 %.o: %.S
-	$(CC) -m64 -c $^ -o $@
+	$(CC) -m64 -mcmodel=large -c $^ -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -MMD -c $< -o $@
