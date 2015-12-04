@@ -234,17 +234,3 @@ void *balloc_alloc(unsigned long long low, unsigned long long high, size_t size)
 
 void balloc_free(const void *ptr)
 { balloc_free_to_pool(&free, ptr); }
-
-bool balloc_is_free(unsigned long long addr, size_t size)
-{
-	const struct balloc_pool *pool = &free;
-	const int pos = balloc_lower_bound(pool, addr);
-	const struct balloc_area *area = &pool->areas[pos];
-
-	if (pos == pool->size)
-		return false;
-
-	if (area->addr > addr || area->addr + area->size < addr + size)
-		return false;
-	return true;
-}
