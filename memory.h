@@ -4,15 +4,28 @@
 #include "balloc.h"
 #include "list.h"
 
-#define PAGE_BITS 12
-#define PAGE_SIZE (1 << PAGE_BITS)
+#define PAGE_BITS       12
+#define PAGE_SIZE       (1 << PAGE_BITS)
 
-#define PAGE_NODE_BITS   8ul
-#define PAGE_NODE_MASK   ((1ul << PAGE_NODE_BITS) - 1)
+#define PAGE_NODE_BITS  8ul
+#define PAGE_NODE_MASK  ((1ul << PAGE_NODE_BITS) - 1)
 
-#define BUDDY_ORDERS 12
+#define BUDDY_ORDERS    12
+
+#define VIRTUAL_BASE    0xffff800000000000ul
 
 typedef unsigned long pfn_t;
+typedef unsigned long phys_t;
+
+#define KERNEL_PHYS(x)  ((phys_t)(x) - VIRTUAL_BASE)
+#define KERNEL_VIRT(x)  ((void *)((phys_t)(x) + VIRTUAL_BASE))
+
+static inline phys_t kernel_phys(const void *vaddr)
+{ return KERNEL_PHYS(vaddr); }
+
+static inline void *kernel_virt(phys_t paddr)
+{ return KERNEL_VIRT(paddr); }
+
 
 struct memory_node;
 
