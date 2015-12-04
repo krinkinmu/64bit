@@ -12,7 +12,7 @@ struct mmap_entry {
 	unsigned long long addr;
 	unsigned long long length;
 	unsigned type;
-} __attribute__((__packed__));
+} __attribute__((packed));
 
 struct balloc_area {
 	unsigned long long addr;
