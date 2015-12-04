@@ -12,13 +12,20 @@
 
 #define BUDDY_ORDERS    12
 
-#define VIRTUAL_BASE    0xffff800000000000ul
+/* #define VIRTUAL_BASE    0xffff800000000000ul */
+#define VIRTUAL_BASE    0xffffffff80000000
+
+#define KERNEL_CS       0x18
+#define KERNEL_DS       0x20
+
 
 typedef unsigned long pfn_t;
 typedef unsigned long phys_t;
 
+
 #define KERNEL_PHYS(x)  ((phys_t)(x) - VIRTUAL_BASE)
 #define KERNEL_VIRT(x)  ((void *)((phys_t)(x) + VIRTUAL_BASE))
+
 
 static inline phys_t kernel_phys(const void *vaddr)
 { return KERNEL_PHYS(vaddr); }

@@ -132,13 +132,14 @@ setup_identity_mapping:
 
 	movl $bss_phys_begin, %edx
 	movl %eax, (%edx)
-	movl %eax, 2048(%edx)
+	movl %eax, 4088(%edx)
 
 	movl $(bss_phys_begin + 2 * PAGE_SIZE), %eax
 	orl $(PTE_PRESENT | PTE_WRITE), %eax
 
 	movl $(bss_phys_begin + PAGE_SIZE), %edx
 	movl %eax, (%edx)
+	movl %eax, 4080(%edx)
 
 	movl $(PTE_LARGE | PTE_PRESENT | PTE_WRITE), %eax
 	movl $(bss_phys_begin + 2 * PAGE_SIZE), %edx
