@@ -51,6 +51,6 @@ print "\t.code64"
 
 common, handler, isr_table = "common_isr", "isr_common_handler", "isr_entry"
 create_common(common, handler)
-names = [ create_entry("entry", intno, common) for intno in xrange(256) ]
+names = [ create_entry("entry", intno, common) for intno in xrange(128) ]
 export_name(isr_table)
 create_export_table(isr_table, names)

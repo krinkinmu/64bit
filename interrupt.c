@@ -4,7 +4,7 @@
 #define IDT_PRESENT (1ul << 47)
 #define IDT_64INT   (14ul << 40)
 #define IDT_64TRAP  (15ul << 40)
-#define IDT_SIZE    256
+#define IDT_SIZE    128
 #define IDT_HIGH    30
 
 struct idt_entry {
