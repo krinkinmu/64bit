@@ -87,7 +87,15 @@ static void memory_free_region(unsigned long long addr, unsigned long long size)
 		struct page *page = node_page(node, pfn);
 		int order = pfn_max_order(pfn);
 
-		while (pfn + ((pfn_t)1 << order) > pages)
+		/**
+		 * Actually we need not check that order is non negative
+		 * because order originally non negative and goes less
+		 * while (1 << order) > pages and pages is positive, so
+		 * order never get less than zero.
+		 * But clang static checker complains about it, so i've
+		 * added order check in loop condition
+		 */
+		while (order && pfn + ((pfn_t)1 << order) > pages)
 			--order;
 
 		free_pages_node(page, order, node);
