@@ -7,8 +7,6 @@
 #define IDT_64TRAP     (15ul << 40)
 #define IDT_SIZE       128
 #define IDT_EXCEPTIONS 32
-#define IDT_IRQS       16
-#define IDT_INTS       (IDT_IRQS + IDT_EXCEPTIONS)
 
 struct idt_entry {
 	unsigned long low;
@@ -123,18 +121,18 @@ void isr_common_handler(struct interrupt_frame *ctx)
 	if (isr) isr(ctx);
 }
 
-void int_set(isr_t isr, int no)
+void register_handler(int no, isr_t isr)
 { handler[no] = isr; }
 
-void int_clear(int no)
+void unregister_handler(int no)
 { handler[no] = (isr_t)0; }
 
-void setup_int(void)
+void setup_ints(void)
 {
-	for (int i = 0; i != IDT_INTS; ++i)
+	for (int i = 0; i != IDT_EXCEPTIONS; ++i)
 		setup_irq(isr_entry[i], i);
 
-	for (int i = IDT_INTS; i != IDT_SIZE; ++i)
+	for (int i = IDT_EXCEPTIONS; i != IDT_SIZE; ++i)
 		setup_trap(isr_entry[i], i);
 
 	idt_ptr.size = sizeof(idt) - 1;

@@ -34,8 +34,8 @@ inline static void local_irq_disable(void)
 inline static void local_irq_enable(void)
 { __asm__ volatile ("sti"); }
 
-void int_set(isr_t isr, int no);
-void int_clear(int no);
-void setup_int(void);
+void register_handler(int no, isr_t handler);
+void unregister_handler(int no);
+void setup_ints(void);
 
 #endif /*__INTERRUPT_H__*/

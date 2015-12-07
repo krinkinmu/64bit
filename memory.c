@@ -189,20 +189,3 @@ void free_pages_node(struct page *pages, int order, struct memory_node *node)
 	page_set_order(pages, order);
 	list_add(&pages->link, &node->free_list[order]);
 }
-
-static void dump_memory_node_state(const struct memory_node *node)
-{
-	printf("Memory Node %lu [%lu-%lu]\n", node->id, node->begin_pfn,
-		node->end_pfn - 1);
-	for (int order = 0; order != BUDDY_ORDERS; ++order) {
-		const size_t size = list_size(&node->free_list[order]);
-
-		if (size)
-			printf("\torder %d: %zu blocks\n", order, size);
-	}
-}
-
-void dump_buddy_allocator_state(void)
-{
-	dump_memory_node_state(&nodes[0]);
-}
