@@ -63,6 +63,7 @@ static void memory_node_add(unsigned long long addr, unsigned long long size)
 
 		page->flags = node->id;
 		page_set_order(page, BUDDY_ORDERS);
+		list_init(&page->link);
 	}
 
 	printf("memory node %ld: pfns %ld-%ld\n",
@@ -139,13 +140,14 @@ struct page *alloc_pages_node(int order, struct memory_node *node)
 		++coorder;
 	}
 
-	if (order >= BUDDY_ORDERS)
+	if (coorder >= BUDDY_ORDERS)
 		return 0;
 
 	struct page *page = CONTAINER_OF(list_first(&node->free_list[coorder]),
 		struct page, link);
 
 	list_del(&page->link);
+
 	while (coorder > order) {
 		const pfn_t pfn = node_pfn(node, page);
 		const pfn_t bpfn = buddy_pfn(pfn, --coorder);
@@ -160,11 +162,6 @@ struct page *alloc_pages_node(int order, struct memory_node *node)
 
 void free_pages_node(struct page *pages, int order, struct memory_node *node)
 {
-	if (order >= BUDDY_ORDERS) {
-		puts("shit");
-		while (1);
-	}
-
 	pfn_t pfn = node_pfn(node, pages);
 
 	while (order < BUDDY_ORDERS - 1) {
@@ -188,4 +185,24 @@ void free_pages_node(struct page *pages, int order, struct memory_node *node)
 	}
 	page_set_order(pages, order);
 	list_add(&pages->link, &node->free_list[order]);
+}
+
+struct page *alloc_pages(int order)
+{
+	for (int i = 0; i != memory_nodes; ++i) {
+		struct memory_node *node = memory_node_get(i);
+		struct page *pages = alloc_pages_node(order, node);
+
+		if (pages)
+			return pages;
+	}
+
+	return 0;
+}
+
+void free_pages(struct page *pages, int order)
+{
+	struct memory_node *node = page_node(pages);
+
+	free_pages_node(pages, order, node);
 }

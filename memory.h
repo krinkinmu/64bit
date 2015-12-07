@@ -4,16 +4,19 @@
 #include "balloc.h"
 #include "list.h"
 
-#define PAGE_BITS       12
-#define PAGE_SIZE       (1 << PAGE_BITS)
-
 #define PAGE_NODE_BITS  8ul
 #define PAGE_NODE_MASK  ((1ul << PAGE_NODE_BITS) - 1)
 
 #define BUDDY_ORDERS    12
 
-/* #define VIRTUAL_BASE    0xffff800000000000ul */
-#define VIRTUAL_BASE    0xffffffff80000000
+#define PAGE_BITS       12
+#define PAGE_SIZE       (1 << PAGE_BITS)
+#define PAGE_MASK       (PAGE_SIZE - 1)
+
+#define VIRTUAL_BASE    0xffffffff80000000ul
+#define PHYSICAL_BASE   0x0000000000000000ul
+#define KERNEL_SIZE     (1ul << 31) // 2GB - kernel memory model
+#define KERNEL_PAGES    (KERNEL_SIZE / PAGE_SIZE)
 
 #define KERNEL_CS       0x18
 #define KERNEL_DS       0x20
@@ -70,8 +73,9 @@ pfn_t page2pfn(const struct page * const page);
 
 struct page *alloc_pages_node(int order, struct memory_node *node);
 void free_pages_node(struct page *pages, int order, struct memory_node *node);
+struct page *alloc_pages(int order);
+void free_pages(struct page *pages, int order);
 
 void setup_buddy(void);
-void dump_buddy_allocator_state(void);
 
 #endif /*__MEMORY_H__*/
