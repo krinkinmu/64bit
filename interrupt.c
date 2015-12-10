@@ -1,4 +1,5 @@
 #include "interrupt.h"
+#include "irqchip.h"
 #include "memory.h"
 #include "stdio.h"
 
@@ -24,7 +25,8 @@ extern raw_isr_entry_t isr_entry[];
 
 static struct idt_entry idt[IDT_SIZE];
 static struct idt_ptr idt_ptr;
-static isr_t handler[IDT_SIZE];
+static irq_t handler[IDT_SIZE - IDT_EXCEPTIONS];
+static const struct irqchip *irqchip;
 
 
 static void setup_idt_entry(struct idt_entry *entry, unsigned short cs,
@@ -110,22 +112,45 @@ static void default_exception_handler(struct interrupt_frame *frame)
 
 void isr_common_handler(struct interrupt_frame *ctx)
 {
-	const unsigned long intno = ctx->intno;
-	const isr_t isr = handler[intno];
+	const int intno = ctx->intno;
 
-	if (!isr && intno < IDT_EXCEPTIONS) {
+	if (intno < IDT_EXCEPTIONS) {
 		default_exception_handler(ctx);
 		return;
 	}
 
-	if (isr) isr(ctx);
+	const int irqno = intno - IDT_EXCEPTIONS;
+	const irq_t irq = handler[irqno];
+
+	if (irq)
+		irq(irqno);
+
+	irqchip_eoi(irqchip, irqno);
 }
 
-void register_handler(int no, isr_t isr)
-{ handler[no] = isr; }
+void register_irq_handler(int irq, irq_t isr)
+{
+	const int intno = irq + IDT_EXCEPTIONS;
 
-void unregister_handler(int no)
-{ handler[no] = (isr_t)0; }
+	handler[irq] = isr;
+	setup_irq(isr_entry[intno], intno);
+}
+
+void unregister_irq_handler(int irq, irq_t isr)
+{
+	const int intno = irq + IDT_EXCEPTIONS;
+
+	if (handler[irq] == isr) {
+		handler[irq] = (irq_t)0;
+		setup_trap(isr_entry[intno], intno);
+	}
+}
+
+void mask_irq(int irq)
+{ irqchip_mask(irqchip, irq); }
+
+void unmask_irq(int irq)
+{ irqchip_unmask(irqchip, irq); }
 
 void setup_ints(void)
 {
@@ -138,4 +163,7 @@ void setup_ints(void)
 	idt_ptr.size = sizeof(idt) - 1;
 	idt_ptr.base = (unsigned long)idt;
 	set_idt(&idt_ptr);
+
+	irqchip = &i8259a;
+	irqchip_map(irqchip, IDT_EXCEPTIONS);
 }

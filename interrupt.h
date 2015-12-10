@@ -26,7 +26,7 @@ struct interrupt_frame {
 	unsigned long ss;
 } __attribute__((packed));
 
-typedef void (*isr_t)(struct interrupt_frame *frame);
+typedef void (*irq_t)(int irq);
 
 inline static void local_irq_disable(void)
 { __asm__ volatile ("cli"); }
@@ -34,8 +34,11 @@ inline static void local_irq_disable(void)
 inline static void local_irq_enable(void)
 { __asm__ volatile ("sti"); }
 
-void register_handler(int no, isr_t handler);
-void unregister_handler(int no);
+void register_irq_handler(int irq, irq_t isr);
+void unregister_irq_handler(int irq, irq_t isr);
+void mask_irq(int irq);
+void unmask_irq(int irq);
+
 void setup_ints(void);
 
 #endif /*__INTERRUPT_H__*/
