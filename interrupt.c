@@ -122,10 +122,11 @@ void isr_common_handler(struct interrupt_frame *ctx)
 	const int irqno = intno - IDT_EXCEPTIONS;
 	const irq_t irq = handler[irqno];
 
+	mask_irq(irqno);
+	irqchip_eoi(irqchip, irqno);
 	if (irq)
 		irq(irqno);
-
-	irqchip_eoi(irqchip, irqno);
+	unmask_irq(irqno);
 }
 
 void register_irq_handler(int irq, irq_t isr)
