@@ -6,7 +6,7 @@
 #define IDT_PRESENT    (1ul << 47)
 #define IDT_64INT      (14ul << 40)
 #define IDT_64TRAP     (15ul << 40)
-#define IDT_SIZE       128
+#define IDT_SIZE       48
 #define IDT_EXCEPTIONS 32
 
 struct idt_entry {
@@ -26,6 +26,7 @@ extern raw_isr_entry_t isr_entry[];
 static struct idt_entry idt[IDT_SIZE];
 static struct idt_ptr idt_ptr;
 static irq_t handler[IDT_SIZE - IDT_EXCEPTIONS];
+static int irqmask_count[IDT_SIZE - IDT_EXCEPTIONS];
 static const struct irqchip *irqchip;
 
 
@@ -110,6 +111,15 @@ static void default_exception_handler(struct interrupt_frame *frame)
 	while (1);
 }
 
+static inline void mask_irq(int irq)
+{ if (irqmask_count[irq]++ == 0) irqchip_mask(irqchip, irq); }
+
+static inline void unmask_irq(int irq)
+{ if (--irqmask_count[irq] == 0) irqchip_unmask(irqchip, irq); }
+
+static inline void ack_irq(int irq)
+{ irqchip_eoi(irqchip, irq); }
+
 void isr_common_handler(struct interrupt_frame *ctx)
 {
 	const int intno = ctx->intno;
@@ -122,11 +132,11 @@ void isr_common_handler(struct interrupt_frame *ctx)
 	const int irqno = intno - IDT_EXCEPTIONS;
 	const irq_t irq = handler[irqno];
 
-	irqchip_mask(irqchip, irqno);
-	irqchip_eoi(irqchip, irqno);
+	mask_irq(irqno);
+	ack_irq(irqno);
 	if (irq)
 		irq(irqno);
-	irqchip_unmask(irqchip, irqno);
+	unmask_irq(irqno);
 }
 
 void register_irq_handler(int irq, irq_t isr)
@@ -135,7 +145,7 @@ void register_irq_handler(int irq, irq_t isr)
 
 	handler[irq] = isr;
 	setup_irq(isr_entry[intno], intno);
-	irqchip_unmask(irqchip, irq);
+	unmask_irq(irq);
 }
 
 void unregister_irq_handler(int irq, irq_t isr)
@@ -143,7 +153,7 @@ void unregister_irq_handler(int irq, irq_t isr)
 	const int intno = irq + IDT_EXCEPTIONS;
 
 	if (handler[irq] == isr) {
-		irqchip_mask(irqchip, irq);
+		mask_irq(irq);
 		handler[irq] = (irq_t)0;
 		setup_trap(isr_entry[intno], intno);
 	}
@@ -154,8 +164,10 @@ void setup_ints(void)
 	for (int i = 0; i != IDT_EXCEPTIONS; ++i)
 		setup_irq(isr_entry[i], i);
 
-	for (int i = IDT_EXCEPTIONS; i != IDT_SIZE; ++i)
+	for (int i = IDT_EXCEPTIONS; i != IDT_SIZE; ++i) {
 		setup_trap(isr_entry[i], i);
+		irqmask_count[i - IDT_EXCEPTIONS] = 1;
+	}
 
 	idt_ptr.size = sizeof(idt) - 1;
 	idt_ptr.base = (unsigned long)idt;

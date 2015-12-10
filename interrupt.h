@@ -36,9 +36,6 @@ inline static void local_irq_enable(void)
 
 void register_irq_handler(int irq, irq_t isr);
 void unregister_irq_handler(int irq, irq_t isr);
-void mask_irq(int irq);
-void unmask_irq(int irq);
-
 void setup_ints(void);
 
 #endif /*__INTERRUPT_H__*/
