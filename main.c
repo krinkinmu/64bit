@@ -18,7 +18,6 @@ void main(void)
 	setup_paging();
 
 	register_irq_handler(0, &timer_isr);
-	unmask_irq(0);
 	local_irq_enable();
 
 	while (1);

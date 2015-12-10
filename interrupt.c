@@ -122,11 +122,11 @@ void isr_common_handler(struct interrupt_frame *ctx)
 	const int irqno = intno - IDT_EXCEPTIONS;
 	const irq_t irq = handler[irqno];
 
-	mask_irq(irqno);
+	irqchip_mask(irqchip, irqno);
 	irqchip_eoi(irqchip, irqno);
 	if (irq)
 		irq(irqno);
-	unmask_irq(irqno);
+	irqchip_unmask(irqchip, irqno);
 }
 
 void register_irq_handler(int irq, irq_t isr)
@@ -135,6 +135,7 @@ void register_irq_handler(int irq, irq_t isr)
 
 	handler[irq] = isr;
 	setup_irq(isr_entry[intno], intno);
+	irqchip_unmask(irqchip, irq);
 }
 
 void unregister_irq_handler(int irq, irq_t isr)
@@ -142,16 +143,11 @@ void unregister_irq_handler(int irq, irq_t isr)
 	const int intno = irq + IDT_EXCEPTIONS;
 
 	if (handler[irq] == isr) {
+		irqchip_mask(irqchip, irq);
 		handler[irq] = (irq_t)0;
 		setup_trap(isr_entry[intno], intno);
 	}
 }
-
-void mask_irq(int irq)
-{ irqchip_mask(irqchip, irq); }
-
-void unmask_irq(int irq)
-{ irqchip_unmask(irqchip, irq); }
 
 void setup_ints(void)
 {
