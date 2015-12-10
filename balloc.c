@@ -172,6 +172,20 @@ static void balloc_free_to_pool(struct balloc_pool *pool, const void *ptr)
 	balloc_pool_insert(pool, (unsigned long long)addr, header.size + sz);
 }
 
+struct gdt_ptr {
+	unsigned short size;
+	unsigned long ptr;
+} __attribute__((packed));
+
+static void gdt_remap(void)
+{
+	struct gdt_ptr ptr;
+
+	__asm__("sgdt %0" : "=m"(ptr));
+	ptr.ptr += VIRTUAL_BASE;
+	__asm__("lgdt %0" : : "m"(ptr));
+}
+
 void setup_memory(void)
 {
 	extern const char *mmap[];
@@ -206,6 +220,7 @@ void setup_memory(void)
 
 	balloc_pool_delete(&free, (unsigned long long)text_phys_begin,
 		(unsigned long long)(bss_phys_end - text_phys_begin));
+	gdt_remap();
 }
 
 static void balloc_iterate(struct balloc_pool *pool, region_fptr_t exec)
