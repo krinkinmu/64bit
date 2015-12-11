@@ -25,6 +25,15 @@ static void *memcpy_r(void *dst, const void *src, size_t size)
 void *memmove(void *dst, const void *src, size_t size)
 { return dst > src ? memcpy_r(dst, src, size) : memcpy(dst, src, size); }
 
+void *memset(void *dst, int value, size_t size)
+{
+	char *ptr = dst;
+
+	while (size--)
+		*ptr++ = value;
+	return dst;
+}
+
 size_t strlen(const char *str)
 {
 	const char *pos = str;
