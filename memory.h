@@ -13,6 +13,8 @@
 #define PAGE_SIZE       (1 << PAGE_BITS)
 #define PAGE_MASK       (PAGE_SIZE - 1)
 
+#define PADDR_BITS      48
+
 #define VIRTUAL_BASE    0xffffffff80000000ul
 #define PHYSICAL_BASE   0x0000000000000000ul
 #define KERNEL_SIZE     (1ul << 31) // 2GB - kernel memory model
