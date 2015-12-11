@@ -104,6 +104,66 @@ static void memory_free_region(unsigned long long addr, unsigned long long size)
 	}
 }
 
+struct gdt_ptr {
+	unsigned short size;
+	unsigned long ptr;
+} __attribute__((packed));
+
+static void setup_gdt(void)
+{
+	struct gdt_ptr ptr;
+
+	__asm__("sgdt %0" : "=m"(ptr));
+	ptr.ptr += VIRTUAL_BASE;
+	__asm__("lgdt %0" : : "m"(ptr) : "memory");
+}
+
+#define MMAP_AVAILABLE 1
+
+struct mmap_entry {
+	unsigned size;
+	unsigned long long addr;
+	unsigned long long length;
+	unsigned type;
+} __attribute__((packed));
+
+void setup_memory(void)
+{
+	setup_gdt();
+
+	extern const char *mmap[];
+	extern const unsigned long mmap_len[];
+
+	const char *begin = mmap[0];
+	const char *end = begin + mmap_len[0];
+
+	while (begin < end) {
+		const struct mmap_entry *ptr =
+					(const struct mmap_entry *)begin;
+
+		begin += ptr->size + sizeof(ptr->size);
+		balloc_add_region(ptr->addr, ptr->length);
+		printf("memory range: %#llx-%#llx type %u\n",
+			ptr->addr, ptr->addr + ptr->length - 1, ptr->type);
+	}
+
+	begin = mmap[0];
+	while (begin < end) {
+		const struct mmap_entry *ptr =
+					(const struct mmap_entry *)begin;
+
+		begin += ptr->size + sizeof(ptr->size);
+		if (ptr->type != MMAP_AVAILABLE)
+			balloc_reserve_region(ptr->addr, ptr->length);
+	}
+
+	extern char text_phys_begin[];
+	extern char bss_phys_end[];
+
+	balloc_reserve_region((unsigned long long)text_phys_begin,
+			(unsigned long long)(bss_phys_end - text_phys_begin));
+}
+
 void setup_buddy(void)
 {
 	balloc_for_each_region(&memory_node_add);

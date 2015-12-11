@@ -76,6 +76,7 @@ void free_pages_node(struct page *pages, int order, struct memory_node *node);
 struct page *alloc_pages(int order);
 void free_pages(struct page *pages, int order);
 
+void setup_memory(void);
 void setup_buddy(void);
 
 #endif /*__MEMORY_H__*/
