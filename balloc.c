@@ -146,9 +146,11 @@ static void *balloc_alloc_aligned_from_pool(struct balloc_pool *pool,
 		if (start >= end || end - start < size)
 			continue;
 
-		memcpy((void *)(start - sz), &header, sz);
+		char *ptr = kernel_virt(start);
+
+		memcpy(ptr - sz, &header, sz);
 		balloc_pool_delete(pool, start - sz, size + sz);
-		return (void *)start;
+		return ptr;
 	}
 	return 0;
 }
@@ -195,7 +197,7 @@ void *balloc_alloc_aligned(unsigned long long low, unsigned long long high,
 }
 
 void *balloc_alloc(unsigned long long low, unsigned long long high, size_t size)
-{ return balloc_alloc_aligned(low, high, size, ALIGNOF(uintmax_t)); }
+{ return balloc_alloc_aligned(low, high, size, ALIGN_OF(uintmax_t)); }
 
 void balloc_free(const void *ptr)
 { balloc_free_to_pool(&free, ptr); }

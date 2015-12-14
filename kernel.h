@@ -8,7 +8,7 @@
 	(type *)( (char *)(ptr) - offsetof(type, member) )
 
 
-#define ALIGNOF(type) offsetof(struct { char c; type member; }, member)
+#define ALIGN_OF(type) offsetof(struct { char c; type member; }, member)
 
 #define MIN_CONST(l, r)    ((l) < (r) ? (l) : (r))
 #define MAX_CONST(l, r)    ((l) > (r) ? (l) : (r))
