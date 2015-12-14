@@ -220,6 +220,26 @@ struct page *alloc_pages_node(int order, struct memory_node *node)
 	return page;
 }
 
+static void dump_buddy_node_state(struct memory_node *node)
+{
+	for (int i = 0; i != BUDDY_ORDERS; ++i) {
+		const int sz = list_size(&node->free_list[i]);
+
+		if (sz)
+			printf("\torder %d: %d\n", i, sz);
+	}
+}
+
+void dump_buddy_state(void)
+{
+	for (int i = 0; i != memory_nodes; ++i) {
+		struct memory_node *node = memory_node_get(i);
+
+		printf("node %d\n", i);
+		dump_buddy_node_state(node);
+	}
+}
+
 void free_pages_node(struct page *pages, int order, struct memory_node *node)
 {
 	pfn_t pfn = node_pfn(node, pages);
