@@ -14,16 +14,12 @@ struct the_data {
 
 void dump_buddy_state(void);
 
-static void test_kmem_cache(void)
+static void test_kmem(void)
 {
-	struct kmem_cache *cache = KMEM_CACHE(struct the_data);
 	struct the_data *next = 0;
 
-	if (!cache)
-		puts("Cache allocation failed");
-
-	for (int i = 0; i != 100000; ++i) {
-		struct the_data *ptr = kmem_cache_alloc(cache);
+	for (int i = 0; i != 10000; ++i) {
+		struct the_data *ptr = kmem_alloc(sizeof(*ptr));
 
 		if (!ptr) {
 			printf("Cannot allocate %d-th the_data\n", i);
@@ -41,10 +37,8 @@ static void test_kmem_cache(void)
 		struct the_data *ptr = next;
 
 		next = next->next;
-		kmem_cache_free(cache, ptr);
+		kmem_free(ptr);
 	}
-
-	kmem_cache_destroy(cache);
 }
 
 void main(void)
@@ -54,10 +48,10 @@ void main(void)
 	setup_memory();
 	setup_buddy();
 	setup_paging();
-	setup_kmem_cache();
+	setup_alloc();
 
 	dump_buddy_state();
-	test_kmem_cache();
+	test_kmem();
 
 	while (1);
 }
