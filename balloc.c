@@ -197,7 +197,7 @@ void *balloc_alloc_aligned(unsigned long long low, unsigned long long high,
 }
 
 void *balloc_alloc(unsigned long long low, unsigned long long high, size_t size)
-{ return balloc_alloc_aligned(low, high, size, ALIGN_OF(uintmax_t)); }
+{ return balloc_alloc_aligned(low, high, size, sizeof(void *)); }
 
 void balloc_free(const void *ptr)
 { balloc_free_to_pool(&free, ptr); }
