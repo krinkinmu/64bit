@@ -62,7 +62,7 @@ static void memory_node_add(unsigned long long addr, unsigned long long size)
 		struct page *page = &node->mmap[i];
 
 		page->flags = node->id;
-		page_set_order(page, BUDDY_ORDERS);
+		page_set_busy(page);
 		list_init(&page->link);
 	}
 
@@ -203,8 +203,8 @@ struct page *alloc_pages_node(int order, struct memory_node *node)
 	if (coorder >= BUDDY_ORDERS)
 		return 0;
 
-	struct page *page = CONTAINER_OF(list_first(&node->free_list[coorder]),
-		struct page, link);
+	struct page *page = LIST_ENTRY(list_first(&node->free_list[coorder]),
+				struct page, link);
 
 	list_del(&page->link);
 
@@ -214,9 +214,11 @@ struct page *alloc_pages_node(int order, struct memory_node *node)
 		struct page *buddy = node_page(node, bpfn);
 
 		page_set_order(buddy, coorder);
+		page_set_free(buddy);
 		list_add(&buddy->link, &node->free_list[coorder]);
 	}
-	page_set_order(page, BUDDY_ORDERS);
+	page_set_busy(page);
+
 	return page;
 }
 
@@ -252,7 +254,7 @@ void free_pages_node(struct page *pages, int order, struct memory_node *node)
 
 		struct page *buddy = node_page(node, bpfn);
 
-		if (order != page_get_order(buddy))
+		if (page_busy(buddy) || order != page_get_order(buddy))
 			break;
 
 		list_del(&buddy->link);
@@ -264,6 +266,7 @@ void free_pages_node(struct page *pages, int order, struct memory_node *node)
 		}
 	}
 	page_set_order(pages, order);
+	page_set_free(pages);
 	list_add(&pages->link, &node->free_list[order]);
 }
 

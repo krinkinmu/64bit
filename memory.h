@@ -4,24 +4,28 @@
 #include "balloc.h"
 #include "list.h"
 
-#define PAGE_NODE_BITS  8ul
-#define PAGE_NODE_MASK  ((1ul << PAGE_NODE_BITS) - 1)
+#define BUDDY_ORDERS      12
+#define BUDDY_ORDER_BITS  8ul
 
-#define BUDDY_ORDERS    12
+#define PAGE_NODE_BITS    8ul
+#define PAGE_NODE_MASK    (BIT_CONST(PAGE_NODE_BITS) - 1)
 
-#define PAGE_BITS       12
-#define PAGE_SIZE       (1 << PAGE_BITS)
-#define PAGE_MASK       (PAGE_SIZE - 1)
+#define PAGE_BUSY_BIT     PAGE_NODE_BITS
+#define PAGE_BUSY_MASK    BIT_CONST(PAGE_BUSY_BIT)
 
-#define PADDR_BITS      48
+#define PAGE_BITS         12
+#define PAGE_SIZE         BIT_CONST(PAGE_BITS)
+#define PAGE_MASK         (PAGE_SIZE - 1)
 
-#define VIRTUAL_BASE    0xffffffff80000000ul
-#define PHYSICAL_BASE   0x0000000000000000ul
-#define KERNEL_SIZE     (1ul << 31) // 2GB - kernel memory model
-#define KERNEL_PAGES    (KERNEL_SIZE / PAGE_SIZE)
+#define PADDR_BITS        48
 
-#define KERNEL_CS       0x18
-#define KERNEL_DS       0x20
+#define VIRTUAL_BASE      0xffffffff80000000ul
+#define PHYSICAL_BASE     0x0000000000000000ul
+#define KERNEL_SIZE       BIT_CONST(31) // 2GB - kernel memory model
+#define KERNEL_PAGES      (KERNEL_SIZE / PAGE_SIZE)
+
+#define KERNEL_CS         0x18
+#define KERNEL_DS         0x20
 
 
 typedef unsigned long pfn_t;
@@ -40,21 +44,39 @@ static inline void *kernel_virt(phys_t paddr)
 
 
 struct memory_node;
+struct kmem_slab;
 
 struct page {
 	unsigned long flags;
 	struct list_head link;
-	int order;
+
+	union {
+		struct kmem_slab *slab;
+		int order;
+	} u;
 };
+
 
 static inline unsigned long page_node_id(const struct page *page)
 { return page->flags & PAGE_NODE_MASK; }
 
+static inline bool page_busy(const struct page *page)
+{ return (page->flags & PAGE_BUSY_MASK) != 0; }
+
+static inline bool page_free(const struct page *page)
+{ return !page_busy(page); }
+
+static inline void page_set_busy(struct page *page)
+{ page->flags |= PAGE_BUSY_MASK; }
+
+static inline void page_set_free(struct page *page)
+{ page->flags &= ~PAGE_BUSY_MASK; }
+
 static inline int page_get_order(const struct page *page)
-{ return page->order; }
+{ return page->u.order; }
 
 static inline void page_set_order(struct page *page, int order)
-{ page->order = order; }
+{ page->u.order = order; }
 
 struct memory_node {
 	struct page *mmap;
@@ -65,18 +87,22 @@ struct memory_node {
 	struct list_head free_list[BUDDY_ORDERS];
 };
 
+
 struct memory_node *memory_node_get(unsigned long id);
 
 static inline struct memory_node *page_node(const struct page * const page)
 { return memory_node_get(page_node_id(page)); }
 
+
 struct page *pfn2page(pfn_t pfn);
 pfn_t page2pfn(const struct page * const page);
+
 
 struct page *alloc_pages_node(int order, struct memory_node *node);
 void free_pages_node(struct page *pages, int order, struct memory_node *node);
 struct page *alloc_pages(int order);
 void free_pages(struct page *pages, int order);
+
 
 void setup_memory(void);
 void setup_buddy(void);
