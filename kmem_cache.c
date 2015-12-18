@@ -3,232 +3,59 @@
 #include "list.h"
 
 
-struct kmem_border_tag {
-	struct kmem_border_tag *next;
-};
-
-struct kmem_small_slab {
-	struct list_head link;
-	struct kmem_border_tag *free_list;
-	struct kmem_small_cache *cache;
-	struct page *pages;
-	unsigned short total;
-	unsigned short free;
-};
-
-struct kmem_small_cache {
-	struct list_head free_list;
-	struct list_head part_list;
-	struct list_head full_list;
-	size_t object_size;
-	size_t padded_size;
-	int order;
-};
-
-struct kmem_tag {
-	struct kmem_tag *next;
-	void *ptr;
+struct kmem_slab_ops {
+	void *(*alloc)(struct kmem_cache *, struct kmem_slab *);
+	void (*free)(struct kmem_cache *, struct kmem_slab *, void *);
 };
 
 struct kmem_slab {
 	struct list_head link;
-	struct kmem_tag *free;
-	struct kmem_tag *busy;
+	const struct kmem_slab_ops *ops;
 	struct kmem_cache *cache;
 	struct page *pages;
+	size_t free;
+	size_t total;
+};
+
+struct kmem_cache_ops {
+	struct kmem_slab *(*create)(struct kmem_cache *, struct page *pages);
+	void (*destroy)(struct kmem_cache *, struct kmem_slab *);
 };
 
 struct kmem_cache {
-	struct list_head free_list;
+	const struct kmem_cache_ops *ops;
 	struct list_head part_list;
+	struct list_head free_list;
 	struct list_head full_list;
+	size_t object_align;
 	size_t object_size;
 	int order;
 };
 
-static struct kmem_small_cache kmem_small_cache_cache;
-static struct kmem_small_cache kmem_cache_cache;
-static struct kmem_small_cache kmem_slab_cache;
-static struct kmem_small_cache kmem_tag_cache;
-
-static const size_t kmem_size[] = {
-	16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768
-};
-
-#define KMEM_POOLS (sizeof(kmem_size)/sizeof(kmem_size[0]))
-static struct kmem_cache *kmem_pool[KMEM_POOLS];
-
-
-static int kmem_cache_index(size_t size)
-{
-	for (int i = 0; i != KMEM_POOLS; ++i) {
-		if (size <= kmem_size[i])
-			return i;
-	}
-	return -1;
-}
-
-static struct kmem_small_slab *kmem_get_small_slab(void *ptr)
-{
-	const pfn_t pfn = KERNEL_PHYS(ptr) >> PAGE_BITS;
-	
-	return pfn2page(pfn)->u.small_slab;
-}
-
-static struct kmem_slab *kmem_get_slab(void *ptr)
-{
-	const pfn_t pfn = KERNEL_PHYS(ptr) >> PAGE_BITS;
-
-	return pfn2page(pfn)->u.slab;
-}
-
-static void *kmem_small_slab_alloc(struct kmem_small_cache *cache,
-			struct kmem_small_slab *slab)
-{
-	struct kmem_border_tag *tag = slab->free_list;
-
-	slab->free_list = tag->next;
-	--slab->free;
-
-	return ((char *)tag) - cache->object_size;
-}
-
-static void *kmem_slab_alloc(struct kmem_slab *slab)
-{
-	struct kmem_tag *tag = slab->free;
-	void *ptr = tag->ptr;
-
-	slab->free = tag->next;
-	tag->next = slab->busy;
-	slab->busy = tag;
-
-	return ptr;
-}
-
-static void kmem_small_slab_free(struct kmem_small_cache *cache,
-			struct kmem_small_slab *slab, char *ptr)
-{
-	struct kmem_border_tag *tag = (void *)(ptr + cache->object_size);
-
-	tag->next = slab->free_list;
-	slab->free_list = tag;
-	++slab->free;
-}
-
-static void kmem_slab_free(struct kmem_slab *slab, void *ptr)
-{
-	struct kmem_tag *tag = slab->busy;
-
-	slab->busy = tag->next;
-	tag->next = slab->free;
-	tag->ptr = ptr;
-	slab->free = tag;
-}
-
-static bool kmem_small_cache_grow(struct kmem_small_cache *cache)
-{
-	struct page *page = alloc_pages(cache->order);
-
-	if (!page)
-		return false;
-
-	const pfn_t pages = (pfn_t)1 << cache->order;
-	const size_t size = PAGE_SIZE * pages;
-	const size_t off = size - sizeof(struct kmem_small_slab);
-
-	char *vaddr = kernel_virt(page2pfn(page) << PAGE_BITS);
-	struct kmem_small_slab *slab = (struct kmem_small_slab *)(vaddr + off);
-
-	list_init(&slab->link);
-	slab->cache = cache;
-	slab->pages = page;
-	slab->free_list = 0;
-	slab->total = 0;
-	slab->free = 0;
-
-	const size_t sz = cache->padded_size;
-
-	for (char *ptr = vaddr; ptr + sz <= (char *)slab; ptr += sz) {
-		kmem_small_slab_free(cache, slab, ptr);
-		++slab->total;
-	}
-
-	for (pfn_t i = 0; i != pages; ++i)
-		page[i].u.small_slab = slab;
-
-	list_add_tail(&slab->link, &cache->free_list);
-
-	return true;
-}
-
-static void kmem_slab_release(struct kmem_cache *cache, struct kmem_slab *slab)
-{	
-	while (slab->free) {
-		struct kmem_tag *tag = slab->free;
-
-		slab->free = tag->next;
-		kmem_small_cache_free(&kmem_tag_cache, tag);
-	}
-	kmem_small_cache_free(&kmem_slab_cache, slab);
-	free_pages(slab->pages, cache->order);
-}
 
 static bool kmem_cache_grow(struct kmem_cache *cache)
 {
-	struct kmem_slab *slab = kmem_small_cache_alloc(&kmem_slab_cache);
+	const pfn_t pfs = (pfn_t)1 << cache->order;
+	struct page *pages = alloc_pages(cache->order);
 
-	if (!slab)
+	if (!pages)
 		return false;
 
-	list_init(&slab->link);
-	slab->free = 0;
-	slab->busy = 0;
-	slab->cache = cache;
-	slab->pages = alloc_pages(cache->order);
+	struct kmem_slab *slab = cache->ops->create(cache, pages);
 
-	if (!slab->pages)
-		goto out;
-
-	const pfn_t pages = (pfn_t)1 << cache->order;
-	const size_t count = (pages << PAGE_BITS) / cache->object_size;
-	char *ptr = kernel_virt(page2pfn(slab->pages) << PAGE_BITS);
-
-	for (unsigned i = 0; i != count; ++i, ptr += cache->object_size) {
-		struct kmem_tag *tag = kmem_small_cache_alloc(&kmem_tag_cache);
-
-		if (!tag)
-			goto out;
-
-		tag->next = slab->free;
-		tag->ptr = ptr;
-		slab->free = tag;
+	if (!slab) {
+		free_pages(pages, cache->order);
+		return false;
 	}
 
-	for (pfn_t i = 0; i != pages; ++i)
-		slab->pages[i].u.slab = slab;
+	for (pfn_t i = 0; i != pfs; ++i)
+		pages[i].u.slab = slab;
 
+	slab->cache = cache;
+	slab->pages = pages;
 	list_add(&slab->link, &cache->free_list);
 
 	return true;
-
-out:
-	kmem_slab_release(cache, slab);
-
-	return false;
-}
-
-void kmem_small_cache_reap(struct kmem_small_cache *cache)
-{
-	struct list_head *head = &cache->free_list;
-
-	for (struct list_head *ptr = head->next; ptr != head; ptr = ptr->next) {
-		struct kmem_small_slab *slab =
-			LIST_ENTRY(ptr, struct kmem_small_slab, link);
-
-		free_pages(slab->pages, cache->order);	
-	}
-
-	list_init(&cache->free_list);
 }
 
 void kmem_cache_reap(struct kmem_cache *cache)
@@ -238,42 +65,16 @@ void kmem_cache_reap(struct kmem_cache *cache)
 	for (struct list_head *ptr = head->next; ptr != head; ptr = ptr->next) {
 		struct kmem_slab *slab =
 			LIST_ENTRY(ptr, struct kmem_slab, link);
+		struct page *pages = slab->pages;
 
-		kmem_slab_release(cache, slab);	
+		ptr = ptr->next;
+		if (cache->ops->destroy)
+			cache->ops->destroy(cache, slab);
+
+		free_pages(pages, cache->order);	
 	}
 
 	list_init(&cache->free_list);
-}
-
-void *kmem_small_cache_alloc(struct kmem_small_cache *cache)
-{
-	if (!list_empty(&cache->part_list)) {
-		struct list_head *node = list_first(&cache->part_list);
-		struct kmem_small_slab *slab =
-			LIST_ENTRY(node, struct kmem_small_slab, link);
-
-		void *ptr = kmem_small_slab_alloc(cache, slab); 
-
-		if (!slab->free) {
-			list_del(&slab->link);
-			list_add(&slab->link, &cache->full_list);
-		}
-		return ptr;
-	}
-
-	if (list_empty(&cache->free_list) && !kmem_small_cache_grow(cache))
-		return 0;
-
-	struct list_head *node = list_first(&cache->free_list);
-	struct kmem_small_slab *slab =
-		LIST_ENTRY(node, struct kmem_small_slab, link);
-
-	void *ptr = kmem_small_slab_alloc(cache, slab); 
-
-	list_del(&slab->link);
-	list_add(&slab->link, &cache->part_list);
-
-	return ptr;
 }
 
 void *kmem_cache_alloc(struct kmem_cache *cache)
@@ -283,7 +84,9 @@ void *kmem_cache_alloc(struct kmem_cache *cache)
 		struct kmem_slab *slab =
 			LIST_ENTRY(node, struct kmem_slab, link);
 
-		void *ptr = kmem_slab_alloc(slab); 
+		void *ptr = slab->ops->alloc(cache, slab);
+
+		--slab->free;
 
 		if (!slab->free) {
 			list_del(&slab->link);
@@ -298,7 +101,9 @@ void *kmem_cache_alloc(struct kmem_cache *cache)
 	struct list_head *node = list_first(&cache->free_list);
 	struct kmem_slab *slab = LIST_ENTRY(node, struct kmem_slab, link);
 
-	void *ptr = kmem_slab_alloc(slab); 
+	void *ptr = slab->ops->alloc(cache, slab); 
+
+	--slab->free;
 
 	list_del(&slab->link);
 	list_add(&slab->link, &cache->part_list);
@@ -306,11 +111,19 @@ void *kmem_cache_alloc(struct kmem_cache *cache)
 	return ptr;
 }
 
-void kmem_small_cache_free(struct kmem_small_cache *cache, void *ptr)
+static struct kmem_slab *kmem_get_slab(void *ptr)
 {
-	struct kmem_small_slab *slab = kmem_get_small_slab(ptr);
+	const pfn_t pfn = KERNEL_PHYS(ptr) >> PAGE_BITS;
 
-	kmem_small_slab_free(cache, slab, ptr);
+	return pfn2page(pfn)->u.slab;
+}
+
+void kmem_cache_free(struct kmem_cache *cache, void *ptr)
+{
+	struct kmem_slab *slab = kmem_get_slab(ptr);
+
+	slab->ops->free(cache, slab, ptr);
+	++slab->free;
 
 	if (slab->free == slab->total) {
 		list_del(&slab->link);
@@ -324,32 +137,88 @@ void kmem_small_cache_free(struct kmem_small_cache *cache, void *ptr)
 	}
 }
 
-void kmem_cache_free(struct kmem_cache *cache, void *ptr)
+
+struct kmem_border_tag {
+	struct kmem_border_tag *next;
+};
+
+struct kmem_small_slab {
+	struct kmem_slab common;
+	struct kmem_border_tag *free_list;
+};
+
+struct kmem_small_cache {
+	struct kmem_cache common;
+	size_t padded_size;
+};
+
+
+static void *kmem_small_slab_alloc(struct kmem_cache *c, struct kmem_slab *p)
 {
-	struct kmem_slab *slab = kmem_get_slab(ptr);
-	const bool full = (slab->free == 0);
+	struct kmem_small_slab *slab = (struct kmem_small_slab *)p;
+	struct kmem_border_tag *tag = slab->free_list;
 
-	kmem_slab_free(slab, ptr);
+	(void) c;
 
-	if (!slab->busy) {
-		list_del(&slab->link);
-		list_add(&slab->link, &cache->free_list);
-		return;
-	}
+	slab->free_list = tag->next;
 
-	if (full) {
-		list_del(&slab->link);
-		list_add(&slab->link, &cache->part_list);
-	}
+	return ((char *)tag) - c->object_size;
 }
+
+static void kmem_small_slab_free(struct kmem_cache *c,
+			struct kmem_slab *s, void *ptr)
+{
+	struct kmem_small_slab *slab = (struct kmem_small_slab *)s;
+	struct kmem_border_tag *tag = (void *)((char *)ptr + c->object_size);
+
+	(void) c;
+
+	tag->next = slab->free_list;
+	slab->free_list = tag;
+}
+
+static const struct kmem_slab_ops small_slab_ops = {
+	.alloc = kmem_small_slab_alloc,
+	.free = kmem_small_slab_free
+};
+
+static struct kmem_slab *kmem_small_slab_create(struct kmem_cache *cache,
+			struct page *page)
+{
+	struct kmem_small_cache *small = (struct kmem_small_cache *)cache;
+
+	const pfn_t pages = (pfn_t)1 << cache->order;
+	const size_t size = PAGE_SIZE * pages;
+	const size_t off = size - sizeof(struct kmem_small_slab);
+
+	char *vaddr = kernel_virt(page2pfn(page) << PAGE_BITS);
+	struct kmem_small_slab *slab = (struct kmem_small_slab *)(vaddr + off);
+
+	slab->common.ops = &small_slab_ops;
+	slab->common.total = 0;
+	slab->common.free = 0;
+	slab->free_list = 0;
+
+	const size_t sz = small->padded_size;
+
+	for (char *ptr = vaddr; ptr + sz <= (char *)slab; ptr += sz) {
+		kmem_small_slab_free(cache, &slab->common, ptr);
+		++slab->common.total;
+		++slab->common.free;
+	}
+
+	return (struct kmem_slab *)slab;
+}
+
+static const struct kmem_cache_ops small_cache_ops = {
+	.create = kmem_small_slab_create
+};
+
+static struct kmem_small_cache kmem_small_cache_cache;
 
 static void kmem_small_cache_init(struct kmem_small_cache *cache,
 			size_t size, size_t align)
 {
-	list_init(&cache->free_list);
-	list_init(&cache->part_list);
-	list_init(&cache->full_list);
-
 	const size_t sz = sizeof(struct kmem_border_tag);
 	const size_t al = ALIGN_OF(struct kmem_border_tag);
 
@@ -360,87 +229,255 @@ static void kmem_small_cache_init(struct kmem_small_cache *cache,
 	const size_t padded_size = ALIGN(size + sz, align);
 
 	int order = 0;
+
 	for (; order != BUDDY_ORDERS; ++order) {
 		const size_t bytes = (PAGE_SIZE << order) - sizeof(*cache);
 
 		if (bytes / padded_size >= 8)
 			break;
 	}
-	cache->object_size = object_size;
+
+	list_init(&cache->common.free_list);
+	list_init(&cache->common.part_list);
+	list_init(&cache->common.full_list);
+
+	cache->common.ops = &small_cache_ops;
+	cache->common.object_size = object_size;
+	cache->common.order = order;
+
 	cache->padded_size = padded_size;
-	cache->order = order;
 }
 
-static void kmem_cache_init(struct kmem_cache *cache, size_t size, size_t align)
-{
-	list_init(&cache->free_list);
-	list_init(&cache->part_list);
-	list_init(&cache->full_list);
-
-	size = ALIGN(size, MAXU(sizeof(void *), align));
-
-	int order = 0;
-
-	for (; order != BUDDY_ORDERS; ++order) {
-		const size_t bytes = (PAGE_SIZE << order);
-
-		if (bytes / size >= 8)
-			break;
-	}
-	cache->object_size = size;
-	cache->order = order;
-}
-
-
-struct kmem_small_cache *kmem_small_cache_create(size_t size, size_t align)
+static struct kmem_cache *kmem_small_cache_create(size_t size, size_t align)
 {
 	struct kmem_small_cache *cache =
-		kmem_small_cache_alloc(&kmem_small_cache_cache);
+		kmem_cache_alloc((struct kmem_cache *)&kmem_small_cache_cache);
 
 	if (!cache)
 		return 0;
 
 	kmem_small_cache_init(cache, size, align);
 
-	return cache;
+	return (struct kmem_cache *)cache;
 }
 
-struct kmem_cache *kmem_cache_create(size_t size, size_t align)
+static void kmem_small_cache_setup(void)
 {
-	struct kmem_cache *cache = kmem_small_cache_alloc(&kmem_cache_cache);
+	kmem_small_cache_init(&kmem_small_cache_cache,
+		sizeof(struct kmem_small_cache),
+		ALIGN_OF(struct kmem_small_cache));
+}
+
+
+struct kmem_tag {
+	struct kmem_tag *next;
+	void *ptr;
+};
+
+struct kmem_large_slab {
+	struct kmem_slab common;
+	struct kmem_tag *free;
+	struct kmem_tag *busy;
+};
+
+struct kmem_large_cache {
+	struct kmem_cache common;
+	struct kmem_cache *slab_cache;
+	struct kmem_cache *tag_cache;
+};
+
+
+static void *kmem_large_slab_alloc(struct kmem_cache *c, struct kmem_slab *s)
+{
+	struct kmem_large_slab *slab = (struct kmem_large_slab *)s;
+
+	(void) c;
+
+	struct kmem_tag *tag = slab->free;
+	void *ptr = tag->ptr;
+
+	slab->free = tag->next;
+	tag->next = slab->busy;
+	slab->busy = tag;
+
+	return ptr;
+}
+
+static void kmem_large_slab_free(struct kmem_cache *c, struct kmem_slab *s,
+			void *ptr)
+{
+	struct kmem_large_slab *slab = (struct kmem_large_slab *)s;
+
+	(void) c;
+
+	struct kmem_tag *tag = slab->busy;
+
+	slab->busy = tag->next;
+	tag->next = slab->free;
+	tag->ptr = ptr;
+	slab->free = tag;
+}
+
+static const struct kmem_slab_ops large_slab_ops = {
+	.alloc = kmem_large_slab_alloc,
+	.free = kmem_large_slab_free
+};
+
+static void kmem_large_slab_release(struct kmem_large_cache *cache,
+			struct kmem_large_slab *slab)
+{	
+	while (slab->free) {
+		struct kmem_tag *tag = slab->free;
+
+		slab->free = tag->next;
+		kmem_cache_free(cache->tag_cache, tag);
+	}
+	kmem_cache_free(cache->slab_cache, slab);
+}
+
+static struct kmem_slab *kmem_large_slab_create(struct kmem_cache *c,
+			struct page *page)
+{
+	struct kmem_large_cache *cache = (struct kmem_large_cache *)c;
+	struct kmem_large_slab *slab = kmem_cache_alloc(cache->slab_cache);
+
+	if (!slab)
+		return 0;
+
+	const pfn_t pfs = (pfn_t)1 << c->order;
+	const size_t count = (pfs << PAGE_BITS) / c->object_size;
+	char *ptr = kernel_virt(page2pfn(page) << PAGE_BITS);
+
+	slab->common.ops = &large_slab_ops;
+	slab->common.total = count;
+	slab->common.free = count;
+
+	for (size_t i = 0; i != count; ++i, ptr += c->object_size) {
+		struct kmem_tag *tag = kmem_cache_alloc(cache->tag_cache);
+
+		if (!tag) {
+			kmem_large_slab_release(cache, slab);
+			return 0;
+		}
+
+		tag->next = slab->free;
+		tag->ptr = ptr;
+		slab->free = tag;
+	}
+
+	return (struct kmem_slab *)slab;
+}
+
+static void kmem_large_slab_destroy(struct kmem_cache *c, struct kmem_slab *s)
+{
+	struct kmem_large_cache *cache = (struct kmem_large_cache *)c;
+	struct kmem_large_slab *slab = (struct kmem_large_slab *)s;
+
+	kmem_large_slab_release(cache, slab);
+}
+
+static const struct kmem_cache_ops large_cache_ops = {
+	.create = kmem_large_slab_create,
+	.destroy = kmem_large_slab_destroy
+};
+
+static struct kmem_small_cache kmem_large_cache_cache;
+static struct kmem_small_cache kmem_large_slab_cache;
+static struct kmem_small_cache kmem_large_tag_cache;
+
+static void kmem_large_cache_init(struct kmem_large_cache *cache,
+			size_t size, size_t align)
+{
+	const size_t object_size = ALIGN(size, align);
+
+	int order = 0;
+
+	for (; order != BUDDY_ORDERS; ++order) {
+		const size_t bytes = (PAGE_SIZE << order);
+
+		if (bytes / object_size >= 8)
+			break;
+	}
+
+	list_init(&cache->common.free_list);
+	list_init(&cache->common.part_list);
+	list_init(&cache->common.full_list);
+
+	cache->common.object_size = object_size;
+	cache->common.order = order;
+	cache->common.ops = &large_cache_ops;
+
+	cache->slab_cache = (struct kmem_cache *)&kmem_large_slab_cache;
+	cache->tag_cache = (struct kmem_cache *)&kmem_large_tag_cache;
+}
+
+static struct kmem_cache *kmem_large_cache_create(size_t size, size_t align)
+{
+	struct kmem_large_cache *cache =
+		kmem_cache_alloc((struct kmem_cache *)&kmem_large_cache_cache);
 
 	if (!cache)
 		return 0;
 
-	kmem_cache_init(cache, size, align);
+	kmem_large_cache_init(cache, size, align);
 
-	return cache;
+	return (struct kmem_cache *)cache;
 }
 
-void kmem_small_cache_destroy(struct kmem_small_cache *cache)
+static void kmem_large_cache_setup(void)
 {
-	kmem_small_cache_reap(cache);
+	kmem_small_cache_init(&kmem_large_cache_cache,
+		sizeof(struct kmem_large_cache),
+		ALIGN_OF(struct kmem_large_cache));
 
-	if (!list_empty(&cache->full_list))
-		return;
+	kmem_small_cache_init(&kmem_large_slab_cache,
+		sizeof(struct kmem_large_slab),
+		ALIGN_OF(struct kmem_large_slab));
 
-	if (!list_empty(&cache->part_list))
-		return;
+	kmem_small_cache_init(&kmem_large_tag_cache,
+		sizeof(struct kmem_tag),
+		ALIGN_OF(struct kmem_tag));
+}
 
-	kmem_small_cache_free(&kmem_small_cache_cache, cache);
+
+struct kmem_cache *kmem_cache_create(size_t size, size_t align)
+{
+	if (size <= PAGE_SIZE / 8)
+		return kmem_small_cache_create(size, align);
+	return kmem_large_cache_create(size, align);
 }
 
 void kmem_cache_destroy(struct kmem_cache *cache)
 {
 	kmem_cache_reap(cache);
 
-	if (!list_empty(&cache->full_list))
-		return;
-
 	if (!list_empty(&cache->part_list))
 		return;
 
-	kmem_small_cache_free(&kmem_cache_cache, cache);
+	if (!list_empty(&cache->full_list))
+		return;
+
+	kmem_cache_free(kmem_get_slab(cache)->cache, cache);
+}
+
+
+static const size_t kmem_size[] = {
+	8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128,
+	256, 384, 512, 640, 768, 1024, 1280, 1536, 1792, 2048, 3072, 4096,
+	8 * 1024, 16 * 1024, 32 * 1024, 64 * 1024, 128 * 1024, 256 * 1024
+};
+
+#define KMEM_POOLS (sizeof(kmem_size)/sizeof(kmem_size[0]))
+static struct kmem_cache *kmem_pool[KMEM_POOLS];
+
+
+static int kmem_cache_index(size_t size)
+{
+	for (int i = 0; i != KMEM_POOLS; ++i) {
+		if (size <= kmem_size[i])
+			return i;
+	}
+	return -1;
 }
 
 void *kmem_alloc(size_t size)
@@ -468,18 +505,8 @@ void kmem_free(void *ptr)
 
 void setup_alloc(void)
 {
-	kmem_small_cache_init(&kmem_small_cache_cache,
-		sizeof(struct kmem_small_cache),
-		ALIGN_OF(struct kmem_small_cache));
-
-	kmem_small_cache_init(&kmem_cache_cache, sizeof(struct kmem_cache),
-		ALIGN_OF(struct kmem_cache));
-
-	kmem_small_cache_init(&kmem_slab_cache, sizeof(struct kmem_slab),
-		ALIGN_OF(struct kmem_slab));
-
-	kmem_small_cache_init(&kmem_tag_cache, sizeof(struct kmem_tag),
-		ALIGN_OF(struct kmem_tag));
+	kmem_small_cache_setup();
+	kmem_large_cache_setup();
 
 	for (int i = 0; i != KMEM_POOLS; ++i)
 		kmem_pool[i] = kmem_cache_create(kmem_size[i], sizeof(void *));

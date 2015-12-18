@@ -44,7 +44,6 @@ static inline void *kernel_virt(phys_t paddr)
 
 
 struct memory_node;
-struct kmem_small_slab;
 struct kmem_slab;
 
 struct page {
@@ -52,7 +51,6 @@ struct page {
 	struct list_head link;
 
 	union {
-		struct kmem_small_slab *small_slab;
 		struct kmem_slab *slab;
 		int order;
 	} u;

@@ -2,27 +2,34 @@
 #include "interrupt.h"
 #include "memory.h"
 #include "paging.h"
-#include "stdio.h"
 #include "vga.h"
 
-struct the_data {
+#include "string.h"
+#include "stdio.h"
+
+struct the_small_data {
 	char a;
-	struct the_data *self;
-	struct the_data *next;
+	struct the_small_data *self;
+	struct the_small_data *next;
 	char b;
+};
+
+struct the_large_data {
+	struct the_large_data *next;
+	char data[4096];
 };
 
 void dump_buddy_state(void);
 
-static void test_kmem(void)
+static void test_small_kmem(void)
 {
-	struct the_data *next = 0;
+	struct the_small_data *next = 0;
 
 	for (int i = 0; i != 10000; ++i) {
-		struct the_data *ptr = kmem_alloc(sizeof(*ptr));
+		struct the_small_data *ptr = kmem_alloc(sizeof(*ptr));
 
 		if (!ptr) {
-			printf("Cannot allocate %d-th the_data\n", i);
+			printf("Cannot allocate %d-th the_small_data\n", i);
 			break;
 		}
 
@@ -34,7 +41,35 @@ static void test_kmem(void)
 	dump_buddy_state();
 
 	while (next) {
-		struct the_data *ptr = next;
+		struct the_small_data *ptr = next;
+
+		next = next->next;
+		kmem_free(ptr);
+	}
+}
+
+static void test_large_kmem(void)
+{
+	struct the_large_data *next = 0;
+
+	for (int i = 0; i != 10000; ++i) {
+		struct the_large_data *ptr = kmem_alloc(sizeof(*ptr));
+
+		if (!ptr) {
+			printf("Cannot allocate %d-th the_large_data\n", i);
+			break;
+		}
+
+		memset(ptr->data, 0x13, sizeof(ptr->data));
+
+		ptr->next = next;
+		next = ptr;
+	}
+
+	dump_buddy_state();
+
+	while (next) {
+		struct the_large_data *ptr = next;
 
 		next = next->next;
 		kmem_free(ptr);
@@ -51,7 +86,10 @@ void main(void)
 	setup_alloc();
 
 	dump_buddy_state();
-	test_kmem();
+	test_small_kmem();
+
+	dump_buddy_state();
+	test_large_kmem();
 
 	while (1);
 }
