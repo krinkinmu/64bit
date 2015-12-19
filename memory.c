@@ -244,6 +244,9 @@ void dump_buddy_state(void)
 
 void free_pages_node(struct page *pages, int order, struct memory_node *node)
 {
+	if (!pages)
+		return;
+
 	pfn_t pfn = node_pfn(node, pages);
 
 	while (order < BUDDY_ORDERS - 1) {
