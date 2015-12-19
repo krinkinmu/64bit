@@ -33,6 +33,13 @@ struct kmem_cache {
 };
 
 
+static void kmem_cache_init(struct kmem_cache *cache)
+{
+	list_init(&cache->free_list);
+	list_init(&cache->part_list);
+	list_init(&cache->full_list);
+}
+
 static bool kmem_cache_grow(struct kmem_cache *cache)
 {
 	const pfn_t pfs = (pfn_t)1 << cache->order;
@@ -62,7 +69,7 @@ void kmem_cache_reap(struct kmem_cache *cache)
 {
 	struct list_head *head = &cache->free_list;
 
-	for (struct list_head *ptr = head->next; ptr != head; ptr = ptr->next) {
+	for (struct list_head *ptr = head->next; ptr != head;) {
 		struct kmem_slab *slab =
 			LIST_ENTRY(ptr, struct kmem_slab, link);
 		struct page *pages = slab->pages;
@@ -225,27 +232,13 @@ static void kmem_small_cache_init(struct kmem_small_cache *cache,
 	size = ALIGN(size, al);
 	align = MAXU(align, al);
 
-	const size_t object_size = size;
-	const size_t padded_size = ALIGN(size + sz, align);
-
-	int order = 0;
-
-	for (; order != BUDDY_ORDERS; ++order) {
-		const size_t bytes = (PAGE_SIZE << order) - sizeof(*cache);
-
-		if (bytes / padded_size >= 8)
-			break;
-	}
-
-	list_init(&cache->common.free_list);
-	list_init(&cache->common.part_list);
-	list_init(&cache->common.full_list);
-
 	cache->common.ops = &small_cache_ops;
-	cache->common.object_size = object_size;
-	cache->common.order = order;
+	cache->common.object_size = size;
+	cache->common.order = 0;
 
-	cache->padded_size = padded_size;
+	cache->padded_size = ALIGN(size + sz, align);
+
+	kmem_cache_init(&cache->common);
 }
 
 static struct kmem_cache *kmem_small_cache_create(size_t size, size_t align)
@@ -399,16 +392,14 @@ static void kmem_large_cache_init(struct kmem_large_cache *cache,
 			break;
 	}
 
-	list_init(&cache->common.free_list);
-	list_init(&cache->common.part_list);
-	list_init(&cache->common.full_list);
-
 	cache->common.object_size = object_size;
 	cache->common.order = order;
 	cache->common.ops = &large_cache_ops;
 
 	cache->slab_cache = (struct kmem_cache *)&kmem_large_slab_cache;
 	cache->tag_cache = (struct kmem_cache *)&kmem_large_tag_cache;
+
+	kmem_cache_init(&cache->common);
 }
 
 static struct kmem_cache *kmem_large_cache_create(size_t size, size_t align)
@@ -442,9 +433,18 @@ static void kmem_large_cache_setup(void)
 
 struct kmem_cache *kmem_cache_create(size_t size, size_t align)
 {
+	struct kmem_cache *cache;
+
 	if (size <= PAGE_SIZE / 8)
-		return kmem_small_cache_create(size, align);
-	return kmem_large_cache_create(size, align);
+		cache = kmem_small_cache_create(size, align);
+	else
+		cache = kmem_large_cache_create(size, align);
+
+	if (!cache)
+		return 0;
+
+
+	return cache;
 }
 
 void kmem_cache_destroy(struct kmem_cache *cache)
