@@ -23,10 +23,11 @@ void dump_buddy_state(void);
 
 static void test_small_kmem(void)
 {
+	struct kmem_cache *cache = KMEM_CACHE(struct the_small_data);
 	struct the_small_data *next = 0;
 
-	for (int i = 0; i != 10000; ++i) {
-		struct the_small_data *ptr = kmem_alloc(sizeof(*ptr));
+	for (int i = 0; i != 1000000; ++i) {
+		struct the_small_data *ptr = kmem_cache_alloc(cache);
 
 		if (!ptr) {
 			printf("Cannot allocate %d-th the_small_data\n", i);
@@ -38,14 +39,13 @@ static void test_small_kmem(void)
 		next = ptr;
 	}
 
-	dump_buddy_state();
-
 	while (next) {
 		struct the_small_data *ptr = next;
 
 		next = next->next;
-		kmem_free(ptr);
+		kmem_cache_free(cache, ptr);
 	}
+	kmem_cache_destroy(cache);
 }
 
 static void test_large_kmem(void)
@@ -66,8 +66,6 @@ static void test_large_kmem(void)
 		next = ptr;
 	}
 
-	dump_buddy_state();
-
 	while (next) {
 		struct the_large_data *ptr = next;
 
@@ -86,10 +84,11 @@ void main(void)
 	setup_alloc();
 
 	dump_buddy_state();
+
 	test_small_kmem();
+	test_large_kmem();
 
 	dump_buddy_state();
-	test_large_kmem();
 
 	while (1);
 }
