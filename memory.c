@@ -207,6 +207,7 @@ struct page *alloc_pages_node(int order, struct memory_node *node)
 				struct page, link);
 
 	list_del(&page->link);
+	page_set_busy(page);
 
 	while (coorder > order) {
 		const pfn_t pfn = node_pfn(node, page);
@@ -215,9 +216,9 @@ struct page *alloc_pages_node(int order, struct memory_node *node)
 
 		page_set_order(buddy, coorder);
 		page_set_free(buddy);
+
 		list_add(&buddy->link, &node->free_list[coorder]);
 	}
-	page_set_busy(page);
 
 	return page;
 }
@@ -247,17 +248,24 @@ void free_pages_node(struct page *pages, int order, struct memory_node *node)
 	if (!pages)
 		return;
 
+	const pfn_t node_pfns = node->end_pfn - node->begin_pfn;
 	pfn_t pfn = node_pfn(node, pages);
 
 	while (order < BUDDY_ORDERS - 1) {
 		const pfn_t bpfn = buddy_pfn(pfn, order);
 
-		if (bpfn >= node->end_pfn - node->begin_pfn)
+		if (bpfn >= node_pfns)
+			break;
+
+		if (bpfn + ((pfn_t)1 << order) > node_pfns)
 			break;
 
 		struct page *buddy = node_page(node, bpfn);
 
-		if (page_busy(buddy) || order != page_get_order(buddy))
+		if (page_busy(buddy))
+			break;
+
+		if (order != page_get_order(buddy))
 			break;
 
 		list_del(&buddy->link);
@@ -268,8 +276,10 @@ void free_pages_node(struct page *pages, int order, struct memory_node *node)
 			pages = buddy;
 		}
 	}
+
 	page_set_order(pages, order);
 	page_set_free(pages);
+
 	list_add(&pages->link, &node->free_list[order]);
 }
 
