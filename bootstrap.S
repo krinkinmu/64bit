@@ -239,9 +239,15 @@ start64:
 	movw %ax, %gs
 	movw %ax, %ss
 
-	cld
 	movabsq $stack_top, %rax
 	movq %rax, %rsp
+
+	movabsq $bss_phys_begin, %rax
+	movq $0, (%rax)
+	addq $PAGE_SIZE, %rax;
+	movq $0, (%rax);
+
+	cld
 	movabsq $main, %rax
 	call *%rax
 

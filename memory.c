@@ -56,8 +56,10 @@ static void memory_node_add(unsigned long long addr, unsigned long long size)
 	for (int i = 0; i != BUDDY_ORDERS; ++i)
 		list_init(&node->free_list[i]);
 
-	node->mmap = balloc_alloc_aligned(PAGE_SIZE, ~0ull,
+	const long long mmap = balloc_alloc_aligned(PAGE_SIZE, ~0ull,
 				sizeof(struct page) * pages, PAGE_SIZE);
+
+	node->mmap = kernel_virt(mmap);
 	for (pfn_t i = 0; i != pages; ++i) {
 		struct page *page = &node->mmap[i];
 
@@ -131,11 +133,14 @@ void setup_memory(void)
 {
 	setup_gdt();
 
-	extern const char *mmap[];
-	extern const unsigned long mmap_len[];
+	extern const phys_t mmap;
+	extern const unsigned long mmap_len;
 
-	const char *begin = mmap[0];
-	const char *end = begin + mmap_len[0];
+	phys_t mmap_paddr = *((unsigned long *)kernel_virt((phys_t)&mmap));
+	unsigned long len = *((unsigned long *)kernel_virt((phys_t)&mmap_len));
+
+	const char *begin = kernel_virt(mmap_paddr);
+	const char *end = begin + len;
 
 	while (begin < end) {
 		const struct mmap_entry *ptr =
@@ -147,7 +152,7 @@ void setup_memory(void)
 			ptr->addr, ptr->addr + ptr->length - 1, ptr->type);
 	}
 
-	begin = mmap[0];
+	begin = kernel_virt(mmap_paddr);
 	while (begin < end) {
 		const struct mmap_entry *ptr =
 					(const struct mmap_entry *)begin;
