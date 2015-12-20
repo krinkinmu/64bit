@@ -17,15 +17,13 @@ struct balloc_pool {
 	int size;
 };
 
-struct balloc_alloc_header {
-	size_t size;
-};
 
 static struct balloc_area all_areas[MAX_AREAS_COUNT];
 static struct balloc_area free_areas[MAX_AREAS_COUNT];
 
 static struct balloc_pool all = { all_areas, MAX_AREAS_COUNT, 0 };
 static struct balloc_pool free = { free_areas, MAX_AREAS_COUNT, 0 };
+
 
 static int balloc_lower_bound(const struct balloc_pool *pool,
 			unsigned long long addr)
@@ -124,13 +122,10 @@ static void balloc_pool_delete(struct balloc_pool *pool,
 	++pool->size;
 }
 
-static void *balloc_alloc_aligned_from_pool(struct balloc_pool *pool,
+static long long balloc_alloc_aligned_from_pool(struct balloc_pool *pool,
 			unsigned long long low, unsigned long long high,
 			size_t size, size_t align)
 {
-	static const size_t sz = sizeof(struct balloc_alloc_header);
-
-	const struct balloc_alloc_header header = { size };
 	const int first = balloc_lower_bound(pool, low);
 	const int last = balloc_upper_bound(pool, high);
 
@@ -142,28 +137,16 @@ static void *balloc_alloc_aligned_from_pool(struct balloc_pool *pool,
 		if (start < low) start = low;
 		if (end > high) end = high;
 
-		start = ALIGN(start + sz, align);
+		start = ALIGN(start, align);
 		if (start >= end || end - start < size)
 			continue;
 
-		char *ptr = kernel_virt(start);
+		balloc_pool_delete(pool, start, size);
 
-		memcpy(ptr - sz, &header, sz);
-		balloc_pool_delete(pool, start - sz, size + sz);
-		return ptr;
+		return (long long)start;
 	}
-	return 0;
-}
 
-static void balloc_free_to_pool(struct balloc_pool *pool, const void *ptr)
-{
-	static const size_t sz = sizeof(struct balloc_alloc_header);
-	
-	const char *addr = (const char *)ptr - sz;
-	struct balloc_alloc_header header;
-
-	memcpy(&header, addr, sz);
-	balloc_pool_insert(pool, (unsigned long long)addr, header.size + sz);
+	return -1;
 }
 
 void balloc_add_region(unsigned long long addr, unsigned long long size)
@@ -187,17 +170,18 @@ void balloc_for_each_region(region_fptr_t exec)
 void balloc_for_each_free_region(region_fptr_t exec)
 { balloc_iterate(&free, exec); }
 
-void *balloc_alloc_aligned(unsigned long long low, unsigned long long high,
+long long balloc_alloc_aligned(unsigned long long low, unsigned long long high,
 			size_t size, size_t align)
 {
 	if (low >= high || high - low < size)
-		return 0;
+		return -1;
 
 	return balloc_alloc_aligned_from_pool(&free, low, high, size, align);
 }
 
-void *balloc_alloc(unsigned long long low, unsigned long long high, size_t size)
+long long balloc_alloc(unsigned long long low, unsigned long long high,
+			size_t size)
 { return balloc_alloc_aligned(low, high, size, sizeof(void *)); }
 
-void balloc_free(const void *ptr)
-{ balloc_free_to_pool(&free, ptr); }
+void balloc_free(unsigned long long addr, size_t size)
+{ balloc_pool_insert(&free, addr, size); }
