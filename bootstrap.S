@@ -249,6 +249,10 @@ start64:
 
 	cld
 	movabsq $main, %rax
+
+	/* Remember problems with QEMU, GDB and mode switches */
+//1:	jmp 1b
+
 	call *%rax
 
 	cli
