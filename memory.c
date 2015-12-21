@@ -162,11 +162,11 @@ void setup_memory(void)
 			balloc_reserve_region(ptr->addr, ptr->length);
 	}
 
-	extern char text_phys_begin[];
-	extern char bss_phys_end[];
+	extern char text_virt_begin[];
+	extern char bss_virt_end[];
 
-	balloc_reserve_region((unsigned long long)text_phys_begin,
-			(unsigned long long)(bss_phys_end - text_phys_begin));
+	balloc_reserve_region((phys_t)kernel_phys(text_virt_begin),
+				(size_t)(bss_virt_end - text_virt_begin));
 }
 
 void setup_buddy(void)

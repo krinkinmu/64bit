@@ -242,7 +242,7 @@ start64:
 	movabsq $stack_top, %rax
 	movq %rax, %rsp
 
-	movabsq $bss_phys_begin, %rax
+	movabsq $bss_virt_begin, %rax
 	movq $0, (%rax)
 	addq $PAGE_SIZE, %rax;
 	movq $0, (%rax);
