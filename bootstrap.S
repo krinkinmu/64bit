@@ -1,6 +1,7 @@
 #define MB_HEADER_MAGIC 0x1BADB002
 #define MB_HEADER_FLAGS ((1 << 16) | (1 << 1))
 #define MB_HEADER_CKSUM -(MB_HEADER_MAGIC + MB_HEADER_FLAGS)
+#define VIRTUAL_BASE    0xffffffff80000000
 #define PAGE_SIZE       0x1000
 
 	.section .bootstrap, "ax"
@@ -33,6 +34,9 @@ gdt:
 gdt_ptr:
 	.word (gdt_ptr - gdt - 1)
 	.quad gdt
+gdt_ptr64:
+	.word (gdt_ptr - gdt - 1)
+	.quad (gdt + VIRTUAL_BASE) 
 
 	.global cmdline, mmap, mmap_len
 cmdline:
@@ -232,6 +236,7 @@ enable_paging:
 
 	.code64
 start64:
+	lgdt gdt_ptr64
 	movw $0x20, %ax
 	movw %ax, %ds
 	movw %ax, %es

@@ -106,20 +106,6 @@ static void memory_free_region(unsigned long long addr, unsigned long long size)
 	}
 }
 
-struct gdt_ptr {
-	unsigned short size;
-	unsigned long ptr;
-} __attribute__((packed));
-
-static void setup_gdt(void)
-{
-	struct gdt_ptr ptr;
-
-	__asm__("sgdt %0" : "=m"(ptr));
-	ptr.ptr += VIRTUAL_BASE;
-	__asm__("lgdt %0" : : "m"(ptr) : "memory");
-}
-
 #define MMAP_AVAILABLE 1
 
 struct mmap_entry {
@@ -131,8 +117,6 @@ struct mmap_entry {
 
 void setup_memory(void)
 {
-	setup_gdt();
-
 	extern const phys_t mmap;
 	extern const unsigned long mmap_len;
 
