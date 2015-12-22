@@ -2,7 +2,7 @@ CC ?= gcc
 LD ?= ld
 
 CFLAGS := -g -m64 -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -ffreestanding \
-	-mcmodel=kernel -O3 -Wall -Wextra -Werror -pedantic -std=c99
+	-mcmodel=kernel -Ofast -Wall -Wextra -Werror -pedantic -std=c99
 LFLAGS := -nostdlib -z max-page-size=0x1000
 
 SRC := main.c list.c console.c vga.c string.c stdio.c ctype.c stdlib.c \

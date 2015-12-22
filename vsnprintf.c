@@ -44,13 +44,17 @@ static int format_decode(const char *fmt, struct format_spec *spec)
 	const char *start = fmt;
 
 	spec->type = FT_NONE;
+	spec->flags = 0;
+	spec->width = 0;
+	spec->qualifier = 0;
+	spec->base = 10;
+
 	while (*fmt && *fmt != '%')
 		++fmt;
 
 	if (fmt != start || !*fmt)
 		return fmt - start;
 
-	spec->flags = 0;
 	while (1) {
 		int found = 1;
 		++fmt;
@@ -70,11 +74,9 @@ static int format_decode(const char *fmt, struct format_spec *spec)
 			break;
 	};
 
-	spec->width = 0;
 	if (isdigit(*fmt))
 		spec->width = strtol(fmt, (char **)&fmt, 10);
 
-	spec->qualifier = 0;
 	if (strchr(length_mod, *fmt)) {
 		spec->qualifier = *fmt++;
 
@@ -84,7 +86,6 @@ static int format_decode(const char *fmt, struct format_spec *spec)
 		}
 	}
 
-	spec->base = 10;
 	switch (*fmt) {
 	case 'c':
 		spec->type = FT_CHAR;
