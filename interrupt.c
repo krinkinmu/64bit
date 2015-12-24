@@ -1,4 +1,5 @@
 #include "interrupt.h"
+#include "threads.h"
 #include "irqchip.h"
 #include "memory.h"
 #include "stdio.h"
@@ -137,6 +138,9 @@ void isr_common_handler(struct interrupt_frame *ctx)
 	if (irq)
 		irq(irqno);
 	unmask_irq(irqno);
+
+	if (need_resched())
+		schedule();
 }
 
 void register_irq_handler(int irq, irq_t isr)
