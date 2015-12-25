@@ -27,6 +27,26 @@ static void __list_del(struct list_head *prev, struct list_head *next)
 void list_del(struct list_head *entry)
 { __list_del(entry->prev, entry->next); }
 
+static void __list_splice(struct list_head *list, struct list_head *prev,
+			struct list_head *next)
+{
+	struct list_head *first = list->next;
+	struct list_head *last = list->prev;
+
+	first->prev = prev;
+	prev->next = first;
+	last->next = next;
+	next->prev = last;
+}
+
+void list_splice(struct list_head *list, struct list_head *head)
+{
+	if (!list_empty(list)) {
+		__list_splice(list, head, head->next);
+		list_init(list);
+	}
+}
+
 bool list_empty(const struct list_head *head)
 { return head->next == head; }
 
