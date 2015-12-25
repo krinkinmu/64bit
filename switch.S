@@ -6,6 +6,7 @@
 start_thread:
 	popq %rdi
 	popq %rsi
+	popq %rdx
 	jmp thread_entry
 1:	jmp 1b
 

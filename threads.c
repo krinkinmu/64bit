@@ -12,6 +12,7 @@ struct switch_stack_frame {
 	unsigned long rbx;
 	unsigned long rbp;
 	unsigned long entry;
+	unsigned long thread;
 	unsigned long fptr;
 	unsigned long data;
 } __attribute__((packed));
@@ -27,7 +28,7 @@ void idle(void)
 
 static void preempt_thread(struct thread *thread)
 {
-	if (current_thread == &bootstrap)
+	if (thread == &bootstrap)
 		return;
 
 	if (scheduler->preempt)
@@ -36,7 +37,9 @@ static void preempt_thread(struct thread *thread)
 
 static void place_thread(struct thread *thread)
 {
-	if (current_thread == &bootstrap)
+	current_thread = thread;
+
+	if (thread == &bootstrap)
 		return;
 
 	if (scheduler->place)
@@ -45,9 +48,10 @@ static void place_thread(struct thread *thread)
 	thread->time = jiffies();
 }
 
-void thread_entry(void (*fptr)(void *), void *data)
+void thread_entry(struct thread *thread, void (*fptr)(void *), void *data)
 {
-	place_thread(current_thread);
+	local_irq_disable();
+	place_thread(thread);
 	local_irq_enable();
 	fptr(data);
 	finish_thread();
@@ -57,7 +61,6 @@ struct thread *create_thread(void (*fptr)(void *), void *data,
 			void *stack, size_t size)
 {
 	const size_t sz = sizeof(struct switch_stack_frame);
-	static int pid;
 
 	if (size < sz)
 		return 0;
@@ -68,7 +71,6 @@ struct thread *create_thread(void (*fptr)(void *), void *data,
 		return 0;
 
 	thread->state = THREAD_NEW;
-	thread->pid = ++pid;
 
 	void start_thread(void);
 
@@ -76,6 +78,7 @@ struct thread *create_thread(void (*fptr)(void *), void *data,
 
 	memset(frame, 0, sizeof(*frame));
 	frame->entry = (unsigned long)start_thread;
+	frame->thread = (unsigned long)thread;
 	frame->fptr = (unsigned long)fptr;
 	frame->data = (unsigned long)data;
 	thread->stack_pointer = frame;
@@ -113,10 +116,9 @@ static void switch_to(struct thread *next)
 
 	void switch_threads(void **prev, void *next);
 
-	preempt_thread(current_thread);
-	current_thread = next;
+	preempt_thread(prev);
 	switch_threads(&prev->stack_pointer, next->stack_pointer);
-	place_thread(current_thread);
+	place_thread(prev);
 }
 
 static struct thread *next_thread(void)
@@ -124,16 +126,23 @@ static struct thread *next_thread(void)
 
 void schedule(void)
 {
+	const unsigned long flags = local_irqsave();
 	struct thread *thread = next_thread();
+
+	if (thread == current_thread) {
+		local_irqrestore(flags);
+		return;
+	}
+	
 	const bool force = (current_thread->state != THREAD_ACTIVE);
 
-	if (thread == current_thread)
+	if (!force && !thread) {
+		local_irqrestore(flags);
 		return;
-
-	if (!force && !thread)
-		return;
+	}
 
 	switch_to(thread ? thread : &bootstrap);
+	local_irqrestore(flags);
 }
 
 bool need_resched(void)

@@ -53,14 +53,13 @@ static struct thread *rr_next_thread(void)
 	struct list_head *link = list_first(&rr_active_list);
 	struct rr_thread *thread = LIST_ENTRY(link, struct rr_thread, link);
 
+	list_del(&thread->link);
+
 	return THREAD(thread);
 }
 
 static void rr_activate_thread(struct thread *thread)
 { list_add_tail(&RR_THREAD(thread)->link, &rr_active_list); }
-
-static void rr_place_thread(struct thread *thread)
-{ list_del(&RR_THREAD(thread)->link); }
 
 static void rr_preempt_thread(struct thread *thread)
 {
@@ -85,7 +84,6 @@ struct scheduler round_robin = {
 	.activate = rr_activate_thread,
 	.need_preempt = rr_need_preempt,
 	.next = rr_next_thread,
-	.place = rr_place_thread,
 	.preempt = rr_preempt_thread
 };
 

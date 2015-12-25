@@ -34,6 +34,28 @@ inline static void local_irq_disable(void)
 inline static void local_irq_enable(void)
 { __asm__ volatile ("sti"); }
 
+inline static unsigned long local_save_flags(void)
+{
+	unsigned long flags;
+
+	__asm__ volatile("pushf ; pop %0" : "=rm"(flags) : : "memory");
+	return flags;
+}
+
+inline static void local_restore_flags(unsigned long flags)
+{ __asm__ volatile("push %0 ; popf" : : "g"(flags) : "memory"); }
+
+inline static unsigned long local_irqsave(void)
+{
+	const unsigned long flags = local_save_flags();
+
+	local_irq_disable();
+	return flags;
+}
+
+inline static void local_irqrestore(unsigned long flags)
+{ local_restore_flags(flags); }
+
 void register_irq_handler(int irq, irq_t isr);
 void unregister_irq_handler(int irq, irq_t isr);
 void setup_ints(void);

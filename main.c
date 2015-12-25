@@ -59,7 +59,6 @@ void main(void)
 				thread1_stack, sizeof(thread1_stack));
 	activate_thread(thread1);
 
-
 	local_irq_enable();
 	idle();
 }

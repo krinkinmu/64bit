@@ -16,7 +16,6 @@ struct thread {
 	void *stack_pointer;
 	unsigned long long time;
 	enum thread_state state;
-	int pid;
 };
 
 struct scheduler {
