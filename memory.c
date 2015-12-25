@@ -1,3 +1,4 @@
+#include "interrupt.h"
 #include "kernel.h"
 #include "memory.h"
 #include "balloc.h"
@@ -179,7 +180,7 @@ pfn_t page2pfn(const struct page * const page)
 static pfn_t buddy_pfn(pfn_t pfn, int order)
 { return pfn ^ ((pfn_t)1 << order); }
 
-struct page *alloc_pages_node(int order, struct memory_node *node)
+static struct page *__alloc_pages_node(int order, struct memory_node *node)
 {
 	int coorder = order;
 
@@ -212,6 +213,16 @@ struct page *alloc_pages_node(int order, struct memory_node *node)
 	return page;
 }
 
+struct page *alloc_pages_node(int order, struct memory_node *node)
+{
+	const unsigned long flags = local_irqsave();
+	struct page * pages = __alloc_pages_node(order, node);
+
+	local_irqrestore(flags);
+
+	return pages;
+}
+
 static void dump_buddy_node_state(struct memory_node *node)
 {
 	for (int i = 0; i != BUDDY_ORDERS; ++i) {
@@ -232,11 +243,9 @@ void dump_buddy_state(void)
 	}
 }
 
-void free_pages_node(struct page *pages, int order, struct memory_node *node)
+static void __free_pages_node(struct page *pages, int order,
+			struct memory_node *node)
 {
-	if (!pages)
-		return;
-
 	const pfn_t node_pfns = node->end_pfn - node->begin_pfn;
 	pfn_t pfn = node_pfn(node, pages);
 
@@ -270,6 +279,17 @@ void free_pages_node(struct page *pages, int order, struct memory_node *node)
 	page_set_free(pages);
 
 	list_add(&pages->link, &node->free_list[order]);
+}
+
+void free_pages_node(struct page *pages, int order, struct memory_node *node)
+{
+	if (!pages)
+		return;
+
+	const unsigned long flags = local_irqsave();
+
+	__free_pages_node(pages, order, node);
+	local_irqrestore(flags);	
 }
 
 struct page *alloc_pages(int order)

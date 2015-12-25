@@ -1,4 +1,5 @@
 #include "kmem_cache.h"
+#include "interrupt.h"
 #include "memory.h"
 #include "list.h"
 
@@ -60,16 +61,25 @@ static bool kmem_cache_grow(struct kmem_cache *cache)
 
 	slab->cache = cache;
 	slab->pages = pages;
+
+	const unsigned long flags = local_irqsave();
+
 	list_add(&slab->link, &cache->free_list);
+	local_irqrestore(flags);
 
 	return true;
 }
 
 void kmem_cache_reap(struct kmem_cache *cache)
 {
-	struct list_head *head = &cache->free_list;
+	LIST_HEAD(list);
 
-	for (struct list_head *ptr = head->next; ptr != head;) {
+	const unsigned long flags = local_irqsave();
+
+	list_splice(&cache->free_list, &list);
+	local_irqrestore(flags);
+
+	for (struct list_head *ptr = list.next; ptr != &list;) {
 		struct kmem_slab *slab =
 			LIST_ENTRY(ptr, struct kmem_slab, link);
 		struct page *pages = slab->pages;
@@ -80,12 +90,12 @@ void kmem_cache_reap(struct kmem_cache *cache)
 
 		free_pages(pages, cache->order);	
 	}
-
-	list_init(&cache->free_list);
 }
 
 void *kmem_cache_alloc(struct kmem_cache *cache)
 {
+	const unsigned long flags = local_irqsave();
+
 	if (!list_empty(&cache->part_list)) {
 		struct list_head *node = list_first(&cache->part_list);
 		struct kmem_slab *slab =
@@ -99,11 +109,14 @@ void *kmem_cache_alloc(struct kmem_cache *cache)
 			list_del(&slab->link);
 			list_add(&slab->link, &cache->full_list);
 		}
+		local_irqrestore(flags);
 		return ptr;
 	}
 
-	if (list_empty(&cache->free_list) && !kmem_cache_grow(cache))
+	if (list_empty(&cache->free_list) && !kmem_cache_grow(cache)) {
+		local_irqrestore(flags);
 		return 0;
+	}
 
 	struct list_head *node = list_first(&cache->free_list);
 	struct kmem_slab *slab = LIST_ENTRY(node, struct kmem_slab, link);
@@ -115,6 +128,7 @@ void *kmem_cache_alloc(struct kmem_cache *cache)
 	list_del(&slab->link);
 	list_add(&slab->link, &cache->part_list);
 
+	local_irqrestore(flags);
 	return ptr;
 }
 
@@ -128,6 +142,7 @@ static struct kmem_slab *kmem_get_slab(void *ptr)
 void kmem_cache_free(struct kmem_cache *cache, void *ptr)
 {
 	struct kmem_slab *slab = kmem_get_slab(ptr);
+	const unsigned long flags = local_irqsave();
 
 	slab->ops->free(cache, slab, ptr);
 	++slab->free;
@@ -135,6 +150,7 @@ void kmem_cache_free(struct kmem_cache *cache, void *ptr)
 	if (slab->free == slab->total) {
 		list_del(&slab->link);
 		list_add(&slab->link, &cache->free_list);
+		local_irqrestore(flags);
 		return;
 	}
 
@@ -142,6 +158,7 @@ void kmem_cache_free(struct kmem_cache *cache, void *ptr)
 		list_del(&slab->link);
 		list_add(&slab->link, &cache->part_list);
 	}
+	local_irqrestore(flags);
 }
 
 
