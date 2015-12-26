@@ -20,8 +20,8 @@ static struct thread *THREAD(struct rr_thread *thread)
 
 
 static struct kmem_cache *rr_thread_cache;
-static struct list_head rr_active_list;
-static struct list_head rr_blocked_list;
+static LIST_HEAD(rr_active_list);
+static LIST_HEAD(rr_blocked_list);
 
 
 static struct thread *rr_alloc_thread(void)
@@ -88,9 +88,4 @@ struct scheduler round_robin = {
 };
 
 void setup_round_robin(void)
-{
-	rr_thread_cache = KMEM_CACHE(struct rr_thread);
-
-	list_init(&rr_active_list);
-	list_init(&rr_blocked_list);
-}
+{ rr_thread_cache = KMEM_CACHE(struct rr_thread); }
