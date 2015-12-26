@@ -34,6 +34,9 @@ static inline int pml1_index(virt_t vaddr)
 static inline int page_offset(virt_t vaddr)
 { return vaddr & BITS(11, 0); }
 
+static inline void flush_tlb_page(virt_t vaddr)
+{ __asm__ volatile ("invlpg (%0)" : : "r"(vaddr) : "memory"); }
+
 static inline void store_pml4(phys_t pml4)
 { __asm__ volatile ("movq %0, %%cr3" : : "a"(pml4) : "memory"); }
 
@@ -45,6 +48,8 @@ static inline phys_t load_pml4(void)
 	return pml4;
 }
 
+void *tmap(struct page *pages, pfn_t count);
+void tunmap(void *vaddr);
 void setup_paging(void);
 
 #endif /*__PAGEING_H__*/
