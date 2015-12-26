@@ -44,7 +44,7 @@ static void kmem_cache_init(struct kmem_cache *cache)
 static bool kmem_cache_grow(struct kmem_cache *cache)
 {
 	const pfn_t pfs = (pfn_t)1 << cache->order;
-	struct page *pages = alloc_pages(cache->order);
+	struct page *pages = alloc_pages(cache->order, NT_LOW);
 
 	if (!pages)
 		return false;

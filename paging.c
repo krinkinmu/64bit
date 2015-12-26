@@ -6,7 +6,7 @@
 
 static phys_t alloc_page_table(void)
 {
-	const struct page *pt = alloc_pages(0);
+	const struct page *pt = alloc_pages(0, NT_LOW);
 	const phys_t paddr = page2pfn(pt) << PAGE_BITS;
 
 	memset(kernel_virt(paddr), 0, PAGE_SIZE);

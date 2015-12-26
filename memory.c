@@ -8,6 +8,8 @@
 
 static struct memory_node nodes[MAX_MEMORY_NODES];
 static int memory_nodes;
+static LIST_HEAD(node_order);
+static struct list_head *node_type[NT_COUNT];
 
 struct memory_node *memory_node_get(unsigned long id)
 { return &nodes[id]; }
@@ -39,21 +41,18 @@ static struct memory_node *pfn_node(pfn_t pfn)
 	return 0;
 }
 
-static void memory_node_add(unsigned long long addr, unsigned long long size)
+static void __memory_node_add(enum node_type type, unsigned long begin,
+			unsigned long end)
 {
-	const unsigned long long begin = ALIGN(addr, PAGE_SIZE);
-	const unsigned long long end = ALIGN_DOWN(addr + size, PAGE_SIZE);
-
-	if (begin >= end)
-		return;
-
 	struct memory_node *node = &nodes[memory_nodes];
 	const pfn_t pages = (end - begin) >> PAGE_BITS;
 	const pfn_t pfn = begin >> PAGE_BITS;
 
+	list_init(&node->link);
 	node->begin_pfn = pfn;
 	node->end_pfn = pfn + pages;
 	node->id = memory_nodes++;
+	node->type = type;
 	for (int i = 0; i != BUDDY_ORDERS; ++i)
 		list_init(&node->free_list[i]);
 
@@ -71,6 +70,26 @@ static void memory_node_add(unsigned long long addr, unsigned long long size)
 
 	printf("memory node %ld: pfns %ld-%ld\n",
 		node->id, node->begin_pfn, node->end_pfn - 1);
+}
+
+static void memory_node_add(unsigned long long addr, unsigned long long size)
+{
+	const unsigned long long begin = ALIGN(addr, PAGE_SIZE);
+	const unsigned long long end = MINU(ALIGN_DOWN(addr + size, PAGE_SIZE),
+				MAX_PHYS_SIZE);
+
+	if (begin >= end)
+		return;
+
+	if (begin < KERNEL_SIZE && end > KERNEL_SIZE) {
+		__memory_node_add(NT_LOW, begin, KERNEL_SIZE);
+		__memory_node_add(NT_HIGH, KERNEL_SIZE, end);
+	} else {
+		const enum node_type type = (end <= KERNEL_SIZE)
+					? NT_LOW : NT_HIGH;
+
+		__memory_node_add(type, begin, end);
+	}
 }
 
 static void memory_free_region(unsigned long long addr, unsigned long long size)
@@ -158,6 +177,22 @@ void setup_buddy(void)
 {
 	balloc_for_each_region(&memory_node_add);
 	balloc_for_each_free_region(&memory_free_region);
+
+	struct list_head type_nodes[NT_COUNT];
+
+	for (int i = 0; i != NT_COUNT; ++i)
+		list_init(&type_nodes[i]);
+
+	for (int i = 0; i != memory_nodes; ++i) {
+		struct memory_node *node = memory_node_get(i);
+
+		list_add_tail(&node->link, &type_nodes[node->type]);
+	}
+
+	for (int i = 0; i != NT_COUNT; ++i) {
+		list_splice(type_nodes + i, &node_order);
+		node_type[i] = node_order.next;
+	}
 }
 
 struct page *pfn2page(pfn_t pfn)
@@ -292,10 +327,14 @@ void free_pages_node(struct page *pages, int order, struct memory_node *node)
 	local_irqrestore(flags);	
 }
 
-struct page *alloc_pages(int order)
+struct page *alloc_pages(int order, int type)
 {
-	for (int i = 0; i != memory_nodes; ++i) {
-		struct memory_node *node = memory_node_get(i);
+	const struct list_head *head = &node_order;
+	struct list_head *ptr = node_type[type];
+
+	for (; ptr != head; ptr = ptr->next) {
+		struct memory_node *node = LIST_ENTRY(ptr, struct memory_node,
+					link);
 		struct page *pages = alloc_pages_node(order, node);
 
 		if (pages)

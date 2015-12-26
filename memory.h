@@ -21,7 +21,9 @@
 
 #define VIRTUAL_BASE      0xffffffff80000000ul
 #define PHYSICAL_BASE     0x0000000000000000ul
-#define KERNEL_SIZE       BIT_CONST(31) // 2GB - kernel memory model
+#define MAX_PHYS_SIZE     BIT_CONST(36)       // max 0.5GB of page structs
+#define KERNEL_SIZE       (3 * BIT_CONST(29)) // 1.5GB - kernel memory model
+#define TEMP_MAP_SIZE     BIT_CONST(29)       // 0.5GB - temporary map area
 #define KERNEL_PAGES      (KERNEL_SIZE / PAGE_SIZE)
 
 #define KERNEL_CS         0x18
@@ -30,7 +32,6 @@
 
 typedef unsigned long pfn_t;
 typedef unsigned long phys_t;
-
 
 #define KERNEL_PHYS(x)  ((phys_t)(x) - VIRTUAL_BASE)
 #define KERNEL_VIRT(x)  ((void *)((phys_t)(x) + VIRTUAL_BASE))
@@ -78,11 +79,19 @@ static inline int page_get_order(const struct page *page)
 static inline void page_set_order(struct page *page, int order)
 { page->u.order = order; }
 
+enum node_type {
+	NT_LOW,
+	NT_HIGH,
+	NT_COUNT
+};
+
 struct memory_node {
+	struct list_head link;
 	struct page *mmap;
 	pfn_t begin_pfn;
 	pfn_t end_pfn;
 	unsigned long id;
+	enum node_type type;
 
 	struct list_head free_list[BUDDY_ORDERS];
 };
@@ -100,7 +109,7 @@ pfn_t page2pfn(const struct page * const page);
 
 struct page *alloc_pages_node(int order, struct memory_node *node);
 void free_pages_node(struct page *pages, int order, struct memory_node *node);
-struct page *alloc_pages(int order);
+struct page *alloc_pages(int order, int type);
 void free_pages(struct page *pages, int order);
 
 
