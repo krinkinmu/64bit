@@ -25,8 +25,8 @@
 #define KERNEL_SIZE       (3 * BIT_CONST(29)) // 1.5GB - kernel memory model
 #define KERNEL_PAGES      (KERNEL_SIZE / PAGE_SIZE)
 
-#define TMAP_SIZE         BIT_CONST(29)       // 0.5GB - temporary map area
-#define TMAP_PAGES        (TMAP_SIZE / PAGE_SIZE)
+#define KMAP_SIZE         BIT_CONST(29)       // 0.5GB - temporary map area
+#define KMAP_PAGES        (KMAP_SIZE / PAGE_SIZE)
 
 #define KERNEL_CS         0x18
 #define KERNEL_DS         0x20

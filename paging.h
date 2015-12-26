@@ -48,8 +48,8 @@ static inline phys_t load_pml4(void)
 	return pml4;
 }
 
-void *tmap(struct page *pages, pfn_t count);
-void tunmap(void *vaddr);
+void *kmap(struct page *pages, pfn_t count);
+void kunmap(void *vaddr);
 void setup_paging(void);
 
 #endif /*__PAGEING_H__*/
