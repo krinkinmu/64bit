@@ -37,4 +37,13 @@ static inline intmax_t MAX(intmax_t l, intmax_t r)
 static inline uintmax_t MAXU(uintmax_t l, uintmax_t r)
 { return MAX_CONST(l, r); }
 
+static inline int ilog2(uintmax_t x)
+{
+	int order = 0;
+
+	while ((x >>= 1))
+		++order;
+	return order;
+}
+
 #endif /*__KERNEL_H__*/
