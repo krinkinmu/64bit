@@ -112,6 +112,7 @@ struct fs_entry {
  */
 struct fs_file {
 	struct fs_entry *entry;
+	struct fs_node *node;
 	struct fs_file_ops *ops;
 	long offset;
 };
