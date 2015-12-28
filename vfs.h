@@ -31,6 +31,11 @@ struct fs_type_ops {
 
 /**
  * create - creates a file
+ * link - create hard link to the file specified by first
+ *        fs_entry in the directory specified by fs_node
+ *        with name specified by last fs_entry
+ * unlink - deletes hard link to the file specified by
+ *          fs_entry in the directory specified by fs_node.
  * remove - removes a file (we don't support hard links, so
  *          just remove)
  * mkdir - creates a directory
@@ -41,7 +46,8 @@ struct fs_type_ops {
  */
 struct fs_node_ops {
 	int (*create)(struct fs_node *, struct fs_entry *);
-	int (*remove)(struct fs_node *, struct fs_entry *);
+	int (*link)(struct fs_entry *, struct fs_node *, struct fs_entry *);
+	int (*unlink)(struct fs_node *, struct fs_entry *);
 	int (*mkdir)(struct fs_node *, struct fs_entry *);
 	int (*rmdir)(struct fs_node *, struct fs_entry *);
 	int (*lookup)(struct fs_node *, struct fs_entry *);
