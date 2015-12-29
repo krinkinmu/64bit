@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 
+#include "rbtree.h"
 #include "list.h"
 
 struct fs_mount;
@@ -102,6 +103,8 @@ struct fs_node {
  * of dirs (somehow... i don't know how to track children so far).
  */
 struct fs_entry {
+	struct rb_node link;
+	struct rb_tree children;
 	struct fs_entry *parent;
 	struct fs_node *node;
 	const char *name;
