@@ -5,6 +5,7 @@
 #include "paging.h"
 #include "time.h"
 #include "vga.h"
+#include "vfs.h"
 
 #include "stdio.h"
 
@@ -46,6 +47,7 @@ void main(void)
 	setup_alloc();
 	setup_time();
 	setup_threading();
+	setup_vfs();
 
 
 	static char thread0_stack[4096];
