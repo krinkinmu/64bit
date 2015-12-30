@@ -60,7 +60,7 @@ struct page {
 };
 
 
-static inline unsigned long page_node_id(const struct page *page)
+static inline int page_node_id(const struct page *page)
 { return page->flags & PAGE_NODE_MASK; }
 
 static inline bool page_busy(const struct page *page)
