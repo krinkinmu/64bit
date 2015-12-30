@@ -131,23 +131,25 @@ setup_identity_mapping:
 	call videomem_puts
 	addl $4, %esp
 
+	movl $bss_phys_begin, %edx
 	movl $(bss_phys_begin + PAGE_SIZE), %eax
 	orl $(PTE_PRESENT | PTE_WRITE), %eax
 
-	movl $bss_phys_begin, %edx
 	movl %eax, (%edx)
 	movl %eax, 4088(%edx)
 
-	movl $(bss_phys_begin + 2 * PAGE_SIZE), %eax
-	orl $(PTE_PRESENT | PTE_WRITE), %eax
-
-	movl $(bss_phys_begin + PAGE_SIZE), %edx
+	addl $PAGE_SIZE, %edx
+	addl $PAGE_SIZE, %eax
 	movl %eax, (%edx)
 	movl %eax, 4080(%edx)
 
+	addl $PAGE_SIZE, %eax
+	movl %eax, 8(%edx)
+	movl %eax, 4088(%edx)
+
+	addl $PAGE_SIZE, %edx
 	movl $(PTE_LARGE | PTE_PRESENT | PTE_WRITE), %eax
-	movl $(bss_phys_begin + 2 * PAGE_SIZE), %edx
-	movl $512, %ecx
+	movl $1024, %ecx
 1:
 	movl %eax, (%edx)
 	addl $0x200000, %eax
