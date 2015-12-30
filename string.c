@@ -48,3 +48,21 @@ char *strchr(const char *str, int c)
 		++str;
 	return *str ? (char *)str : 0;
 }
+
+int strcmp(const char *l, const char *r)
+{
+	while (*l == *r && *l) {
+		++l;
+		++r;
+	}
+	return *l - *r;
+}
+
+char *strncpy(char *dst, const char *src, size_t size)
+{
+	char *ret = dst;
+
+	while (size-- && *src)
+		*dst++ = *src++;
+	return ret;
+}
