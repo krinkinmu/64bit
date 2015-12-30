@@ -68,8 +68,9 @@ static void __memory_node_add(enum node_type type, unsigned long begin,
 		list_init(&page->link);
 	}
 
-	printf("memory node %ld: pfns %ld-%ld\n",
-		node->id, node->begin_pfn, node->end_pfn - 1);
+	printf("memory node %ld (%s): pfns %ld-%ld\n",
+		node->id, type == NT_LOW ? "low" : "high",
+		node->begin_pfn, node->end_pfn - 1);
 }
 
 static void memory_node_add(unsigned long long addr, unsigned long long size)
@@ -92,7 +93,8 @@ static void memory_node_add(unsigned long long addr, unsigned long long size)
 	}
 }
 
-static void memory_free_region(unsigned long long addr, unsigned long long size)
+static void __memory_free_region(unsigned long long addr,
+			unsigned long long size)
 {
 	const unsigned long long begin = ALIGN(addr, PAGE_SIZE);
 	const unsigned long long end = ALIGN_DOWN(addr + size, PAGE_SIZE);
@@ -125,6 +127,24 @@ static void memory_free_region(unsigned long long addr, unsigned long long size)
 		pfn += (pfn_t)1 << order;
 	}
 }
+
+static void memory_free_region(unsigned long long addr, unsigned long long size)
+{
+	const unsigned long long begin = ALIGN(addr, PAGE_SIZE);
+	const unsigned long long end = MINU(ALIGN_DOWN(addr + size, PAGE_SIZE),
+				MAX_PHYS_SIZE);
+
+	if (begin >= end)
+		return;
+
+	if (begin < KERNEL_SIZE && end > KERNEL_SIZE) {
+		__memory_free_region(begin, KERNEL_SIZE);
+		__memory_free_region(KERNEL_SIZE, end);
+	} else {
+		__memory_free_region(begin, end);
+	}
+}
+
 
 #define MMAP_AVAILABLE 1
 
