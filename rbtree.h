@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include "kernel.h"
+
 struct rb_node {
 	struct rb_node *left;
 	struct rb_node *right;
@@ -13,6 +15,7 @@ struct rb_tree {
 	struct rb_node *root;
 };
 
+#define TREE_ENTRY(ptr, type, member) CONTAINER_OF(ptr, type, member)
 
 static inline void rb_link(struct rb_node *node, struct rb_node *parent,
 			struct rb_node **plink)
