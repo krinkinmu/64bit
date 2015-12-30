@@ -61,7 +61,7 @@ static void __memory_node_add(enum node_type type, unsigned long begin,
 	for (int i = 0; i != BUDDY_ORDERS; ++i)
 		list_init(&node->free_list[i]);
 
-	const long long mmap = balloc_alloc_aligned(PAGE_SIZE, ~0ull,
+	const long long mmap = balloc_alloc_aligned(PAGE_SIZE, KERNEL_SIZE,
 				sizeof(struct page) * pages, PAGE_SIZE);
 
 	node->mmap = kernel_virt(mmap);
