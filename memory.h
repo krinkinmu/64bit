@@ -92,14 +92,14 @@ struct memory_node {
 	struct page *mmap;
 	pfn_t begin_pfn;
 	pfn_t end_pfn;
-	unsigned long id;
+	int id;
 	enum node_type type;
 
 	struct list_head free_list[BUDDY_ORDERS];
 };
 
 
-struct memory_node *memory_node_get(unsigned long id);
+struct memory_node *memory_node_get(int id);
 
 static inline struct memory_node *page_node(const struct page * const page)
 { return memory_node_get(page_node_id(page)); }

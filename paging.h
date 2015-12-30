@@ -1,8 +1,11 @@
 #ifndef __PAGING_H__
 #define __PAGING_H__
 
+#include <stdint.h>
+
 #include "kernel.h"
 #include "memory.h"
+
 
 #define PTE_PRESENT   (1ul << 0)
 #define PTE_READ      0ul
@@ -10,14 +13,17 @@
 #define PTE_SUPERUSER 0ul
 #define PTE_USER      (1ul << 2)
 
-typedef unsigned long pte_t;
+
+typedef uint64_t pte_t;
 typedef unsigned long virt_t;
+
 
 #define PT_SIZE       (PAGE_SIZE / sizeof(pte_t))
 #define PML1_PAGES    ((pfn_t)PT_SIZE)
 #define PML2_PAGES    (PT_SIZE * PML1_PAGES)
 #define PML3_PAGES    (PT_SIZE * PML2_PAGES)
 #define PML4_PAGES    (PT_SIZE * PML3_PAGES)
+
 
 static inline int pml4_index(virt_t vaddr)
 { return (vaddr & BITS(47, 39)) >> 39; }
@@ -33,6 +39,9 @@ static inline int pml1_index(virt_t vaddr)
 
 static inline int page_offset(virt_t vaddr)
 { return vaddr & BITS(11, 0); }
+
+static inline phys_t pte_phys(pte_t pte)
+{ return pte & BITS(PADDR_BITS - 1, 12); }
 
 static inline void flush_tlb_page(virt_t vaddr)
 { __asm__ volatile ("invlpg (%0)" : : "r"(vaddr) : "memory"); }

@@ -3,8 +3,10 @@
 #include "string.h"
 #include "list.h"
 
+
 #define PTE_KERNEL (PTE_PRESENT | PTE_READ | PTE_WRITE | PTE_SUPERUSER)
 #define PTE_FLAGS  BITS_CONST(11, 0)
+
 
 static unsigned long page_common_flags(unsigned long old, unsigned long new)
 { return (old | new) & PTE_FLAGS; }
@@ -44,7 +46,7 @@ static void pml2_map(pte_t *pml2, virt_t virt, phys_t phys, pfn_t pages,
 			unsigned long flags)
 {
 	for (int i = pml2_index(virt); pages && i != PT_SIZE; ++i) {
-		phys_t paddr = pml2[i] & BITS(PADDR_BITS - 1, 12);
+		phys_t paddr = pte_phys(pml2[i]);
 
 		if ((pml2[i] & PTE_PRESENT) == 0)
 			paddr = alloc_page_table();
@@ -66,7 +68,7 @@ static void pml2_map(pte_t *pml2, virt_t virt, phys_t phys, pfn_t pages,
 static void pml2_unmap(pte_t *pml2, virt_t virt, pfn_t pages)
 {
 	for (int i = pml2_index(virt); pages && i != PT_SIZE; ++i) {
-		const phys_t paddr = pml2[i] & BITS(PADDR_BITS - 1, 12);
+		const phys_t paddr = pte_phys(pml2[i]);
 		pte_t *pt = kernel_virt(paddr);
 		const pfn_t to_unmap = MINU(pages, PML1_PAGES);
 		const phys_t bytes = to_unmap << PAGE_BITS;
@@ -82,7 +84,7 @@ static void pml3_map(pte_t *pml3, virt_t virt, phys_t phys, pfn_t pages,
 			unsigned long flags)
 {
 	for (int i = pml3_index(virt); pages && i != PT_SIZE; ++i) {
-		phys_t paddr = pml3[i] & BITS(PADDR_BITS - 1, 12);
+		phys_t paddr = pte_phys(pml3[i]);
 
 		if ((pml3[i] & PTE_PRESENT) == 0)
 			paddr = alloc_page_table();
@@ -104,7 +106,7 @@ static void pml3_map(pte_t *pml3, virt_t virt, phys_t phys, pfn_t pages,
 static void pml3_unmap(pte_t *pml3, virt_t virt, pfn_t pages)
 {
 	for (int i = pml3_index(virt); pages && i != PT_SIZE; ++i) {
-		const phys_t paddr = pml3[i] & BITS(PADDR_BITS - 1, 12);
+		const phys_t paddr = pte_phys(pml3[i]);
 		pte_t *pt = kernel_virt(paddr);
 		const pfn_t to_unmap = MINU(pages, PML2_PAGES);
 		const phys_t bytes = to_unmap << PAGE_BITS;
@@ -120,7 +122,7 @@ static void pml4_map(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
 			unsigned long flags)
 {
 	for (int i = pml4_index(virt); pages && i != PT_SIZE; ++i) {
-		phys_t paddr = pml4[i] & BITS(PADDR_BITS - 1, 12);
+		phys_t paddr = pte_phys(pml4[i]);
 
 		if ((pml4[i] & PTE_PRESENT) == 0)
 			paddr = alloc_page_table();
@@ -142,7 +144,7 @@ static void pml4_map(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
 static void pml4_unmap(pte_t *pml4, virt_t virt, pfn_t pages)
 {
 	for (int i = pml4_index(virt); pages && i != PT_SIZE; ++i) {
-		const phys_t paddr = pml4[i] & BITS(PADDR_BITS - 1, 12);
+		const phys_t paddr = pte_phys(pml4[i]);
 		pte_t *pt = kernel_virt(paddr);
 		const pfn_t to_unmap = MINU(pages, PML3_PAGES);
 		const phys_t bytes = to_unmap << PAGE_BITS;

@@ -1,8 +1,11 @@
+#include <stdint.h>
+
 #include "interrupt.h"
 #include "kernel.h"
 #include "memory.h"
 #include "balloc.h"
 #include "stdio.h"
+
 
 #define MAX_MEMORY_NODES 16
 
@@ -11,7 +14,8 @@ static int memory_nodes;
 static LIST_HEAD(node_order);
 static struct list_head *node_type[NT_COUNT];
 
-struct memory_node *memory_node_get(unsigned long id)
+
+struct memory_node *memory_node_get(int id)
 { return &nodes[id]; }
 
 static pfn_t node_pfn(const struct memory_node *node, const struct page *page)
@@ -19,6 +23,7 @@ static pfn_t node_pfn(const struct memory_node *node, const struct page *page)
 
 static struct page *node_page(const struct memory_node *node, pfn_t pfn)
 { return &node->mmap[pfn]; }
+
 
 static int pfn_max_order(pfn_t pfn)
 {
@@ -93,15 +98,9 @@ static void memory_node_add(unsigned long long addr, unsigned long long size)
 	}
 }
 
-static void __memory_free_region(unsigned long long addr,
-			unsigned long long size)
+static void __memory_free_region(unsigned long long begin,
+			unsigned long long end)
 {
-	const unsigned long long begin = ALIGN(addr, PAGE_SIZE);
-	const unsigned long long end = ALIGN_DOWN(addr + size, PAGE_SIZE);
-
-	if (begin >= end)
-		return;
-
 	const pfn_t b = begin >> PAGE_BITS;
 	const pfn_t e = end >> PAGE_BITS;
 	const pfn_t pages = e - b;
@@ -146,14 +145,15 @@ static void memory_free_region(unsigned long long addr, unsigned long long size)
 }
 
 
-#define MMAP_AVAILABLE 1
+static const uint32_t MMAP_AVAILABLE = 1;
 
 struct mmap_entry {
-	unsigned size;
-	unsigned long long addr;
-	unsigned long long length;
-	unsigned type;
+	uint32_t size;
+	uint64_t addr;
+	uint64_t length;
+	uint32_t type;
 } __attribute__((packed));
+
 
 void setup_memory(void)
 {
@@ -173,7 +173,9 @@ void setup_memory(void)
 		begin += ptr->size + sizeof(ptr->size);
 		balloc_add_region(ptr->addr, ptr->length);
 		printf("memory range: %#llx-%#llx type %u\n",
-			ptr->addr, ptr->addr + ptr->length - 1, ptr->type);
+			(unsigned long long)ptr->addr,
+			(unsigned long long)ptr->addr + ptr->length - 1,
+			(unsigned)ptr->type);
 	}
 
 	begin = kernel_virt(mmap_paddr);
