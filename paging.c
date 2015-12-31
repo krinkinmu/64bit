@@ -24,9 +24,10 @@ static phys_t alloc_page_table(void)
 static void pml1_map(pte_t *pml1, virt_t virt, phys_t phys, pfn_t pages,
 			unsigned long flags)
 {
-	const int entries = MINU(pages, PT_SIZE);
+	const int index = pml1_index(virt);
+	const int entries = MINU(index + pages, PT_SIZE);
 
-	for (int i = pml1_index(virt); i != entries; ++i) {
+	for (int i = index; i != entries; ++i) {
 		pml1[i] = (phys + i * PAGE_SIZE) | flags;
 		flush_tlb_page(virt + i * PAGE_SIZE);
 	}
@@ -34,9 +35,10 @@ static void pml1_map(pte_t *pml1, virt_t virt, phys_t phys, pfn_t pages,
 
 static void pml1_unmap(pte_t *pml1, virt_t virt, pfn_t pages)
 {
-	const int entries = MINU(pages, PT_SIZE);
+	const int index = pml1_index(virt);
+	const int entries = MINU(index + pages, PT_SIZE);
 
-	for (int i = pml1_index(virt); i != entries; ++i) {
+	for (int i = index; i != entries; ++i) {
 		pml1[i] = 0;
 		flush_tlb_page(virt + i * PAGE_SIZE);
 	}
@@ -233,13 +235,15 @@ static struct kmap_range *kmap_alloc_range(pfn_t pages)
 		if (!range)
 			continue;
 
+		const pfn_t range_pages = range->pages;
+
 		list_del(&range->link);
 		list_init(&range->link);
-
-		if (range->pages > pages)
-			kmap_free_range(range + pages, range->pages - pages);
-
 		(range + pages - 1)->pages = range->pages = pages;
+
+		if (range_pages > pages)
+			kmap_free_range(range + pages, range_pages - pages);
+
 		return range;
 	}
 	return 0;
@@ -253,9 +257,9 @@ void *kmap(struct page *pages, pfn_t count)
 		return 0;
 
 	const virt_t vaddr = kmap2virt(range);
-
 	pte_t *pt = kernel_virt(load_pml4());
-	pml4_map(pt, kmap2virt(range), page2pfn(pages) << PAGE_BITS,
+
+	pml4_map(pt, vaddr, page2pfn(pages) << PAGE_BITS,
 				count, PTE_KERNEL);
 	return (void *)vaddr;
 }
@@ -275,7 +279,7 @@ static void setup_kmap(void)
 	for (int i = 0; i != KMAP_ORDERS; ++i)
 		list_init(&free_kmap_ranges[i]);
 
-	kmap_free_range(all_kmap_ranges, KMAP_PAGES);	
+	kmap_free_range(all_kmap_ranges, KMAP_PAGES);
 }
 
 void setup_paging(void)
