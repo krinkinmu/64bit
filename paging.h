@@ -14,8 +14,8 @@
 #define PTE_USER      (1ul << 2)
 
 
-typedef uint64_t pte_t;
-typedef unsigned long virt_t;
+typedef uint64_t  pte_t;
+typedef uintptr_t virt_t;
 
 
 #define PT_SIZE       (PAGE_SIZE / sizeof(pte_t))
@@ -26,22 +26,22 @@ typedef unsigned long virt_t;
 
 
 static inline int pml4_index(virt_t vaddr)
-{ return (vaddr & BITS(47, 39)) >> 39; }
+{ return (vaddr & BITS_CONST(47, 39)) >> 39; }
 
 static inline int pml3_index(virt_t vaddr)
-{ return (vaddr & BITS(38, 30)) >> 30; }
+{ return (vaddr & BITS_CONST(38, 30)) >> 30; }
 
 static inline int pml2_index(virt_t vaddr)
-{ return (vaddr & BITS(29, 21)) >> 21; }
+{ return (vaddr & BITS_CONST(29, 21)) >> 21; }
 
 static inline int pml1_index(virt_t vaddr)
-{ return (vaddr & BITS(20, 12)) >> 12; }
+{ return (vaddr & BITS_CONST(20, 12)) >> 12; }
 
 static inline int page_offset(virt_t vaddr)
-{ return vaddr & BITS(11, 0); }
+{ return vaddr & BITS_CONST(11, 0); }
 
 static inline phys_t pte_phys(pte_t pte)
-{ return pte & BITS(PADDR_BITS - 1, 12); }
+{ return pte & BITS_CONST(PADDR_BITS - 1, 12); }
 
 static inline void flush_tlb_page(virt_t vaddr)
 { __asm__ volatile ("invlpg (%0)" : : "r"(vaddr) : "memory"); }

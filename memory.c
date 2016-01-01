@@ -6,8 +6,7 @@
 #include "balloc.h"
 #include "stdio.h"
 
-
-#define MAX_MEMORY_NODES 16
+#define MAX_MEMORY_NODES (1 << PAGE_NODE_BITS)
 
 static struct memory_node nodes[MAX_MEMORY_NODES];
 static int memory_nodes;
@@ -23,7 +22,6 @@ static pfn_t node_pfn(const struct memory_node *node, const struct page *page)
 
 static struct page *node_page(const struct memory_node *node, pfn_t pfn)
 { return &node->mmap[pfn]; }
-
 
 static int pfn_max_order(pfn_t pfn)
 {

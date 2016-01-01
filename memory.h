@@ -32,8 +32,8 @@
 #define KERNEL_DS         0x20
 
 
-typedef unsigned long pfn_t;
-typedef unsigned long phys_t;
+typedef uintptr_t pfn_t;
+typedef uintptr_t phys_t;
 
 #define KERNEL_PHYS(x)  ((phys_t)(x) - VIRTUAL_BASE)
 #define KERNEL_VIRT(x)  ((void *)((phys_t)(x) + VIRTUAL_BASE))
@@ -81,6 +81,7 @@ static inline int page_get_order(const struct page *page)
 static inline void page_set_order(struct page *page, int order)
 { page->u.order = order; }
 
+
 enum node_type {
 	NT_LOW,
 	NT_HIGH,
@@ -100,19 +101,15 @@ struct memory_node {
 
 
 struct memory_node *memory_node_get(int id);
-
-static inline struct memory_node *page_node(const struct page * const page)
-{ return memory_node_get(page_node_id(page)); }
-
-
 struct page *pfn2page(pfn_t pfn);
 pfn_t page2pfn(const struct page * const page);
-
-
 struct page *alloc_pages_node(int order, struct memory_node *node);
 void free_pages_node(struct page *pages, int order, struct memory_node *node);
 struct page *alloc_pages(int order, int type);
 void free_pages(struct page *pages, int order);
+
+static inline struct memory_node *page_node(const struct page * const page)
+{ return memory_node_get(page_node_id(page)); }
 
 
 void setup_memory(void);
