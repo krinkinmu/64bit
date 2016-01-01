@@ -1,6 +1,7 @@
 #include "kmem_cache.h"
 #include "kernel.h"
 #include "string.h"
+#include "error.h"
 #include "vfs.h"
 
 
@@ -25,8 +26,22 @@ struct fs_entry *vfs_entry_create(const char *name)
 	return entry;
 }
 
-static int vfs_entry_lookup(struct fs_entry *dir, const char *name,
-			struct fs_entry **res, bool create)
+static int vfs_create_child(struct fs_node *dir, struct fs_entry *child)
+{
+	if (!dir->ops->create)
+		return -ENOTSUP;
+	return dir->ops->create(dir, child);
+}
+
+static int vfs_lookup_child(struct fs_node *dir, struct fs_entry *child)
+{
+	if (!dir->ops->lookup)
+		return -ENOTSUP;
+	return dir->ops->lookup(dir, child);
+}
+
+static struct fs_entry * vfs_entry_lookup(struct fs_entry *dir,
+			const char *name, bool create, int *rc)
 {
 	struct rb_node **plink = &dir->children.root;
 	struct rb_node *parent = 0;
@@ -38,10 +53,8 @@ static int vfs_entry_lookup(struct fs_entry *dir, const char *name,
 
 		const int cmp = strcmp(entry->name, name);
 
-		if (!cmp) {
-			*res = vfs_entry_get(entry);
-			return 0;
-		}
+		if (!cmp)
+			return vfs_entry_get(entry);
 
 		if (cmp < 0)
 			plink = &parent->right;
@@ -50,30 +63,26 @@ static int vfs_entry_lookup(struct fs_entry *dir, const char *name,
 	}
 
 	entry = vfs_entry_create(name);
-	if (!entry)
-		return -1;
+	if (!entry) {
+		*rc = -ENOMEM;
+		return 0;
+	}
 
 	struct fs_node *node = dir->node;
-	int rc = node->ops->lookup(node, entry);
 
-	if (rc) {
-		if (!create || !node->ops->create) {
-			vfs_entry_put(entry);
-			return rc;
-		}
+	*rc = vfs_lookup_child(node, entry);
+	while (*rc) {
+		if (create && (*rc = vfs_create_child(node, entry)) == 0)
+			break;
 
-		rc = node->ops->create(node, entry);
-		if (rc) {
-			vfs_entry_put(entry);
-			return rc;
-		}
+		vfs_entry_put(entry);
+		return 0;
 	}
 
 	entry->parent = vfs_entry_get(dir);
 	rb_link(&entry->link, parent, plink);
 	rb_insert(&entry->link, &dir->children);
-	*res = entry;
-	return 0;
+	return entry;
 }
 
 void vfs_entry_evict(struct fs_entry *entry)
@@ -117,7 +126,7 @@ static int vfs_root_lookup(struct fs_node *root, struct fs_entry *entry)
 			return 0;
 		}
 	}
-	return -1;
+	return -ENOENT;
 }
 
 static int vfs_root_iterate(struct fs_file *root, struct dir_iter_ctx *ctx)
@@ -158,11 +167,9 @@ static const char *vfs_next_entry_name(char *next, const char *full)
 	return *full == '/' ? full + 1 : full;
 }
 
-static int vfs_resolve_name(const char *path, struct fs_entry **res,
-			bool create)
+static struct fs_entry *vfs_resolve_name(const char *path, bool create, int *rc)
 {
 	struct fs_entry *entry = vfs_entry_get(&fs_root_entry);
-	int rc;
 
 	++path;
 	while (*path) {
@@ -170,16 +177,15 @@ static int vfs_resolve_name(const char *path, struct fs_entry **res,
 		struct fs_entry *next;
 
 		path = vfs_next_entry_name(name, path);
-		rc = vfs_entry_lookup(entry, name, &next, create && *path == 0);
+		next = vfs_entry_lookup(entry, name, create && *path == 0, rc);
 		vfs_entry_put(entry);
 		entry = next;
 
-		if (rc)
-			return rc;
+		if (!entry)
+			return 0;
 	}
 
-	*res = entry;
-	return 0;
+	return entry;
 }
 
 static void vfs_file_cleanup(struct fs_file *file)
@@ -195,10 +201,10 @@ static void vfs_file_cleanup(struct fs_file *file)
 
 static int vfs_file_open(const char *name, struct fs_file *file, bool create)
 {
-	struct fs_entry *entry;
-	const int rc = vfs_resolve_name(name, &entry, create);
+	int rc = 0;
+	struct fs_entry *entry = vfs_resolve_name(name, create, &rc);
 
-	if (rc)
+	if (!entry)
 		return rc;
 
 	file->entry = entry;
@@ -207,15 +213,12 @@ static int vfs_file_open(const char *name, struct fs_file *file, bool create)
 	file->offset = 0;
 
 	if (file->ops->open) {
-		const int ret = file->ops->open(file);
-
-		if (ret) {
+		rc = file->ops->open(file);
+		if (rc)
 			vfs_file_cleanup(file);
-			return ret;
-		}
 	}
 
-	return 0;
+	return rc;
 }
 
 int vfs_create(const char *name, struct fs_file *file)
@@ -241,14 +244,14 @@ int vfs_read(struct fs_file *file, char *buffer, size_t size)
 {
 	if (file->ops->read)
 		return file->ops->read(file, buffer, size);
-	return -1;
+	return -ENOTSUP;
 }
 
 int vfs_write(struct fs_file *file, const char *buffer, size_t size)
 {
 	if (file->ops->write)
 		return file->ops->write(file, buffer, size);
-	return -1;
+	return -ENOTSUP;
 }
 
 
@@ -298,7 +301,7 @@ int vfs_readdir(struct fs_file *file, struct dirent *entries, size_t count)
 		return rc;
 	}
 
-	return -1;
+	return -ENOTSUP;
 }
 
 
