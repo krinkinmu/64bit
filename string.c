@@ -66,3 +66,13 @@ char *strncpy(char *dst, const char *src, size_t size)
 		*dst++ = *src++;
 	return ret;
 }
+
+char *strcpy(char *dst, const char *src)
+{
+	char *ret = dst;
+
+	while (*src)
+		*dst++ = *src++;
+	*dst = 0;
+	return ret;
+}
