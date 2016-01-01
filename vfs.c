@@ -12,22 +12,7 @@ static LIST_HEAD(fs_mounts);
 static LIST_HEAD(fs_types);
 
 
-static void vfs_entry_destroy(struct fs_entry *entry);
-
-
-static struct fs_entry *vfs_entry_get(struct fs_entry *entry)
-{
-	++entry->refcount;
-	return entry;
-}
-
-static void vfs_entry_put(struct fs_entry *entry)
-{
-	if (--entry->refcount == 0)
-		vfs_entry_destroy(entry);
-}
-
-static struct fs_entry *vfs_entry_lookup(struct fs_entry *dir, const char *name)
+struct fs_entry *vfs_entry_lookup(struct fs_entry *dir, const char *name)
 {
 	struct rb_node **plink = &dir->children.root;
 	struct rb_node *parent = 0;
@@ -40,7 +25,7 @@ static struct fs_entry *vfs_entry_lookup(struct fs_entry *dir, const char *name)
 		res = strcmp(entry->name, name);
 
 		if (!res)
-			return entry;
+			return vfs_entry_get(entry);
 
 		if (res < 0)
 			plink = &parent->right;
@@ -53,6 +38,7 @@ static struct fs_entry *vfs_entry_lookup(struct fs_entry *dir, const char *name)
 		return 0;
 
 	memset(entry, 0, sizeof(*entry));
+	entry->refcount = 1;
 
 	struct fs_node *node = dir->node;
 
@@ -65,14 +51,24 @@ static struct fs_entry *vfs_entry_lookup(struct fs_entry *dir, const char *name)
 	rb_link(&entry->link, parent, plink);
 	rb_insert(&entry->link, &dir->children);
 
-	return 0;
+	return entry;
 }
 
-static void vfs_entry_destroy(struct fs_entry *entry)
+void vfs_entry_evict(struct fs_entry *entry)
 {
 	if (entry->parent) {
 		rb_erase(&entry->link, &entry->parent->children);
 		vfs_entry_put(entry->parent);
+		entry->parent = 0;
+	}
+}
+
+void vfs_entry_destroy(struct fs_entry *entry)
+{
+	vfs_entry_evict(entry);
+	if (entry->node) {
+		vfs_node_put(entry->node);
+		entry->node = 0;
 	}
 	kmem_cache_free(fs_entry_cache, entry);
 }
@@ -90,7 +86,7 @@ static int vfs_root_lookup(struct fs_node *root, struct fs_entry *entry)
 		const char *name = mount->name;
 
 		if (!strcmp(name, entry->name)) {
-			entry->node = mount->root;
+			entry->node = vfs_node_get(mount->root);
 			return 0;
 		}
 	}
@@ -104,7 +100,7 @@ static int vfs_root_iterate(struct fs_file *root, struct dir_iter_ctx *ctx)
 
 	(void) root;
 
-	for (long i = 0; i != ctx->offset && ptr != head; ptr = ptr->next);
+	for (int i = 0; i != ctx->offset && ptr != head; ptr = ptr->next);
 
 	while (ptr != head) {
 		struct fs_mount *mount = LIST_ENTRY(ptr, struct fs_mount, link);
@@ -137,18 +133,32 @@ static const char *vfs_next_entry_name(char *next, const char *full)
 
 static struct fs_entry *vfs_resolve_name(const char *full)
 {
-	struct fs_entry *entry = &fs_root_entry;
-	char next[MAX_PATH_LEN];
+	struct fs_entry *entry = vfs_entry_get(&fs_root_entry);
+	struct fs_entry *next;
+	char name[MAX_PATH_LEN];
 
 	++full;
 	while (*full) {
-		full = vfs_next_entry_name(next, full);
-		entry = vfs_entry_lookup(entry, next);
+		full = vfs_next_entry_name(name, full);
+		next = vfs_entry_lookup(entry, name);
+		vfs_entry_put(entry);
+		entry = next;
 
 		if (!entry)
 			return 0;
 	}
-	return vfs_entry_get(entry);
+	return entry;
+}
+
+static void vfs_file_cleanup(struct fs_file *file)
+{
+	if (file->entry)
+		vfs_entry_put(file->entry);
+
+	file->entry = 0;
+	file->node = 0;
+	file->ops = 0;
+	file->offset = 0;	
 }
 
 int vfs_open(const char *name, struct fs_file *file)
@@ -167,7 +177,7 @@ int vfs_open(const char *name, struct fs_file *file)
 		const int ret = file->ops->open(file);
 
 		if (ret) {
-			vfs_entry_put(entry);
+			vfs_file_cleanup(file);
 			return ret;
 		}
 	}
@@ -184,7 +194,7 @@ int vfs_release(struct fs_file *file)
 			return ret;
 	}
 
-	vfs_entry_put(file->entry);
+	vfs_file_cleanup(file);
 	return 0;
 }
 

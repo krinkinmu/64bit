@@ -29,7 +29,6 @@ struct fs_type_ops {
 	void (*free)(struct fs_mount *);
 	int (*mount)(struct fs_mount *, const void *, size_t);
 	void (*umount)(struct fs_mount *);
-	struct fs_node *(*root)(struct fs_mount *);
 };
 
 /**
@@ -54,6 +53,7 @@ struct fs_node_ops {
 	int (*mkdir)(struct fs_node *, struct fs_entry *);
 	int (*rmdir)(struct fs_node *, struct fs_entry *);
 	int (*lookup)(struct fs_node *, struct fs_entry *);
+	int (*release)(struct fs_node *);
 };
 
 /**
@@ -97,6 +97,7 @@ struct fs_mount {
 struct fs_node {
 	struct fs_node_ops *ops;
 	struct fs_file_ops *fops;
+	int refcount;
 };
 
 /**
@@ -136,13 +137,42 @@ struct dirent {
 	char name[MAX_PATH_LEN];
 };
 
-
 int vfs_create(const char *name, struct fs_file *file);
 int vfs_open(const char *name, struct fs_file *file);
 int vfs_release(struct fs_file *file);
 int vfs_read(struct fs_file *file, char *buffer, size_t size);
 int vfs_write(struct fs_file *file, const char *buffer, size_t size);
 int vfs_readdir(struct fs_file *file, struct dirent *entries, size_t count);
+
+
+void vfs_entry_destroy(struct fs_entry *entry);
+void vfs_entry_evict(struct fs_entry *entry);
+struct fs_entry *vfs_entry_lookup(struct fs_entry *dir, const char *name);
+
+static inline struct fs_node *vfs_node_get(struct fs_node *node)
+{
+	++node->refcount;
+	return node;
+}
+
+static inline void vfs_node_put(struct fs_node *node)
+{
+	if (--node->refcount == 0)
+		node->ops->release(node);
+}
+
+static inline struct fs_entry *vfs_entry_get(struct fs_entry *entry)
+{
+	++entry->refcount;
+	return entry;
+}
+
+static inline void vfs_entry_put(struct fs_entry *entry)
+{
+	if (--entry->refcount == 0)
+		vfs_entry_destroy(entry);
+}
+
 
 int vfs_mount(const char *fs_name, const char *mount, const void *data,
 			size_t size);
