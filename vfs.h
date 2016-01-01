@@ -147,7 +147,8 @@ int vfs_readdir(struct fs_file *file, struct dirent *entries, size_t count);
 
 void vfs_entry_destroy(struct fs_entry *entry);
 void vfs_entry_evict(struct fs_entry *entry);
-struct fs_entry *vfs_entry_lookup(struct fs_entry *dir, const char *name);
+void vfs_entry_detach(struct fs_entry *entry);
+struct fs_entry *vfs_entry_create(const char *name);
 
 static inline struct fs_node *vfs_node_get(struct fs_node *node)
 {

@@ -12,46 +12,68 @@ static LIST_HEAD(fs_mounts);
 static LIST_HEAD(fs_types);
 
 
-struct fs_entry *vfs_entry_lookup(struct fs_entry *dir, const char *name)
+struct fs_entry *vfs_entry_create(const char *name)
+{
+	struct fs_entry *entry = kmem_cache_alloc(fs_entry_cache);
+
+	if (!entry)
+		return 0;
+
+	memset(entry, 0, sizeof(*entry));
+	strcpy(entry->name, name);
+	entry->refcount = 1;
+	return entry;
+}
+
+static int vfs_entry_lookup(struct fs_entry *dir, const char *name,
+			struct fs_entry **res, bool create)
 {
 	struct rb_node **plink = &dir->children.root;
 	struct rb_node *parent = 0;
 	struct fs_entry *entry;
-	int res;
 
 	while (*plink) {
 		parent = *plink;
 		entry = TREE_ENTRY(parent, struct fs_entry, link);
-		res = strcmp(entry->name, name);
 
-		if (!res)
-			return vfs_entry_get(entry);
+		const int cmp = strcmp(entry->name, name);
 
-		if (res < 0)
+		if (!cmp) {
+			*res = vfs_entry_get(entry);
+			return 0;
+		}
+
+		if (cmp < 0)
 			plink = &parent->right;
 		else
 			plink = &parent->left;
 	}
 
-	entry = kmem_cache_alloc(fs_entry_cache);
+	entry = vfs_entry_create(name);
 	if (!entry)
-		return 0;
-
-	memset(entry, 0, sizeof(*entry));
-	entry->refcount = 1;
+		return -1;
 
 	struct fs_node *node = dir->node;
+	int rc = node->ops->lookup(node, entry);
 
-	if (node->ops->lookup(node, entry)) {
-		kmem_cache_free(fs_entry_cache, entry);
-		return 0;
+	if (rc) {
+		if (!create || !node->ops->create) {
+			vfs_entry_put(entry);
+			return rc;
+		}
+
+		rc = node->ops->create(node, entry);
+		if (rc) {
+			vfs_entry_put(entry);
+			return rc;
+		}
 	}
 
 	entry->parent = vfs_entry_get(dir);
 	rb_link(&entry->link, parent, plink);
 	rb_insert(&entry->link, &dir->children);
-
-	return entry;
+	*res = entry;
+	return 0;
 }
 
 void vfs_entry_evict(struct fs_entry *entry)
@@ -63,13 +85,18 @@ void vfs_entry_evict(struct fs_entry *entry)
 	}
 }
 
-void vfs_entry_destroy(struct fs_entry *entry)
+void vfs_entry_detach(struct fs_entry *entry)
 {
-	vfs_entry_evict(entry);
 	if (entry->node) {
 		vfs_node_put(entry->node);
 		entry->node = 0;
 	}
+}
+
+void vfs_entry_destroy(struct fs_entry *entry)
+{
+	vfs_entry_evict(entry);
+	vfs_entry_detach(entry);
 	kmem_cache_free(fs_entry_cache, entry);
 }
 
@@ -131,23 +158,28 @@ static const char *vfs_next_entry_name(char *next, const char *full)
 	return *full == '/' ? full + 1 : full;
 }
 
-static struct fs_entry *vfs_resolve_name(const char *full)
+static int vfs_resolve_name(const char *path, struct fs_entry **res,
+			bool create)
 {
 	struct fs_entry *entry = vfs_entry_get(&fs_root_entry);
-	struct fs_entry *next;
-	char name[MAX_PATH_LEN];
+	int rc;
 
-	++full;
-	while (*full) {
-		full = vfs_next_entry_name(name, full);
-		next = vfs_entry_lookup(entry, name);
+	++path;
+	while (*path) {
+		char name[MAX_PATH_LEN];
+		struct fs_entry *next;
+
+		path = vfs_next_entry_name(name, path);
+		rc = vfs_entry_lookup(entry, name, &next, create && *path == 0);
 		vfs_entry_put(entry);
 		entry = next;
 
-		if (!entry)
-			return 0;
+		if (rc)
+			return rc;
 	}
-	return entry;
+
+	*res = entry;
+	return 0;
 }
 
 static void vfs_file_cleanup(struct fs_file *file)
@@ -161,12 +193,13 @@ static void vfs_file_cleanup(struct fs_file *file)
 	file->offset = 0;	
 }
 
-int vfs_open(const char *name, struct fs_file *file)
+static int vfs_file_open(const char *name, struct fs_file *file, bool create)
 {
-	struct fs_entry *entry = vfs_resolve_name(name);
+	struct fs_entry *entry;
+	const int rc = vfs_resolve_name(name, &entry, create);
 
-	if (!entry)
-		return -1;
+	if (rc)
+		return rc;
 
 	file->entry = entry;
 	file->node = entry->node;
@@ -184,6 +217,12 @@ int vfs_open(const char *name, struct fs_file *file)
 
 	return 0;
 }
+
+int vfs_create(const char *name, struct fs_file *file)
+{ return vfs_file_open(name, file, true); }
+
+int vfs_open(const char *name, struct fs_file *file)
+{ return vfs_file_open(name, file, false); }
 
 int vfs_release(struct fs_file *file)
 {
