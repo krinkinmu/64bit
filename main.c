@@ -11,30 +11,25 @@
 
 static void thread0_function(void *unused)
 {
-	static volatile unsigned count;
-
 	(void) unused;
 
-	while (1) {
-		puts("thread0");
-		count = 0;
-		while (++count != 100000)
-			(void) count;
-	}
+	volatile unsigned count = 1000;
+	while (count--);
 }
 
 static void thread1_function(void *unused)
 {
-	static volatile unsigned count;
-
 	(void) unused;
 
-	while (1) {
-		puts("thread1");
-		count = 0;
-		while (++count != 100000)
-			(void) count;
-	}
+	volatile unsigned count = 1000;
+	while (count--);
+}
+
+static void safe_puts(const char *str)
+{
+	local_irq_disable();
+	puts(str);
+	local_irq_enable();
 }
 
 void main(void)
@@ -62,5 +57,16 @@ void main(void)
 	activate_thread(thread1);
 
 	local_irq_enable();
+
+	safe_puts("wait thread0");
+	wait_thread(thread0);
+	destroy_thread(thread0);
+	safe_puts("thread0 finished");
+
+	safe_puts("wait thread1");
+	wait_thread(thread1);
+	destroy_thread(thread1);
+	safe_puts("thread1 finished");
+
 	idle();
 }

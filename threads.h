@@ -9,7 +9,8 @@ enum thread_state {
 	THREAD_NEW,
 	THREAD_ACTIVE,
 	THREAD_BLOCKED,
-	THREAD_FINISHED
+	THREAD_FINISHED,
+	THREAD_DEAD
 };
 
 struct thread {
@@ -34,6 +35,7 @@ void destroy_thread(struct thread *thread);
 void activate_thread(struct thread *thread);
 void block_thread(void);
 void finish_thread(void);
+void wait_thread(struct thread *thread);
 
 struct thread *current(void);
 void schedule(void);

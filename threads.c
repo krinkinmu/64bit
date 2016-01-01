@@ -37,7 +37,11 @@ static void preempt_thread(struct thread *thread)
 
 static void place_thread(struct thread *thread)
 {
+	struct thread *prev = current_thread;
+
 	current_thread = thread;
+	if (prev->state == THREAD_FINISHED)
+		prev->state = THREAD_DEAD;
 
 	if (thread == &bootstrap)
 		return;
@@ -50,10 +54,11 @@ static void place_thread(struct thread *thread)
 
 void thread_entry(struct thread *thread, void (*fptr)(void *), void *data)
 {
-	local_irq_disable();
 	place_thread(thread);
+
 	local_irq_enable();
 	fptr(data);
+
 	finish_thread();
 }
 
@@ -87,7 +92,10 @@ struct thread *create_thread(void (*fptr)(void *), void *data,
 }
 
 void destroy_thread(struct thread *thread)
-{ scheduler->free(thread); }
+{
+	wait_thread(thread);
+	scheduler->free(thread);
+}
 
 void activate_thread(struct thread *thread)
 {
@@ -97,12 +105,22 @@ void activate_thread(struct thread *thread)
 
 void block_thread(void)
 {
+	const unsigned long flags = local_irqsave();
+
 	current_thread->state = THREAD_BLOCKED;
 	schedule();
+	local_irqrestore(flags);
+}
+
+void wait_thread(struct thread *thread)
+{
+	while (thread->state != THREAD_DEAD)
+		schedule();
 }
 
 void finish_thread(void)
 {
+	local_irq_disable();
 	current_thread->state = THREAD_FINISHED;
 	schedule();
 }
