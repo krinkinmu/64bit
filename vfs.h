@@ -78,6 +78,7 @@ struct fs_type {
 	struct list_head link;
 	const char *name;
 	struct fs_type_ops *ops;
+	int refcount;
 };
 
 /**
@@ -174,6 +175,9 @@ static inline void vfs_entry_put(struct fs_entry *entry)
 		vfs_entry_destroy(entry);
 }
 
+
+int register_filesystem(struct fs_type *type);
+int unregister_filesystem(struct fs_type *type);
 
 int vfs_mount(const char *fs_name, const char *mount, const void *data,
 			size_t size);

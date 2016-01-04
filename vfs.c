@@ -304,6 +304,19 @@ int vfs_readdir(struct fs_file *file, struct dirent *entries, size_t count)
 	return -ENOTSUP;
 }
 
+int register_filesystem(struct fs_type *type)
+{
+	list_add_tail(&type->link, &fs_types);
+	return 0;
+}
+
+int unregister_filesystem(struct fs_type *type)
+{
+	if (type->refcount)
+		return -EBUSY;
+	list_del(&type->link);
+	return 0;
+}
 
 void setup_vfs(void)
 {
