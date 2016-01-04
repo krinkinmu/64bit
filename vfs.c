@@ -318,6 +318,102 @@ int unregister_filesystem(struct fs_type *type)
 	return 0;
 }
 
+
+static struct fs_type *vfs_lookup_filesystem(const char *name)
+{
+	struct list_head *head = &fs_types;
+	struct list_head *ptr = head->next;
+
+	for (; ptr != head; ptr = ptr->next) {
+		struct fs_type *fs = LIST_ENTRY(ptr, struct fs_type, link);
+
+		if (!strcmp(fs->name, name))
+			return fs;
+	}
+	return 0;
+}
+
+static struct fs_mount *vfs_lookup_mount(const char *name)
+{
+	struct list_head *head = &fs_mounts;
+	struct list_head *ptr = head->next;
+
+	for (; ptr != head; ptr = ptr->next) {
+		struct fs_mount *mnt = LIST_ENTRY(ptr, struct fs_mount, link);
+
+		if (!strcmp(mnt->name, name))
+			return mnt;
+	}
+	return 0;
+}
+
+static struct fs_mount *vfs_mount_create(struct fs_type *fs, const char *name)
+{
+	struct fs_mount *mnt;
+
+	if (fs->ops->alloc)
+		mnt = fs->ops->alloc();
+	else
+		mnt = kmem_alloc(sizeof(*mnt));
+
+	if (mnt) {
+		memset(mnt, 0, sizeof(*mnt));
+		strncpy(mnt->name, name, MAX_PATH_LEN - 1);
+		mnt->fs = fs;
+	}
+
+	return mnt;
+}
+
+static void vfs_mount_destroy(struct fs_type *fs, struct fs_mount *mnt)
+{
+	if (fs->ops->free)
+		fs->ops->free(mnt);
+	else
+		kmem_free(mnt);
+}
+
+int vfs_mount(const char *fs_name, const char *mount, const void *data,
+			size_t size)
+{
+	struct fs_type *fs = vfs_lookup_filesystem(fs_name);
+
+	if (!fs)
+		return -ENOENT;
+
+	if (vfs_lookup_mount(mount))
+		return -EEXIST;
+
+	struct fs_mount *mnt = vfs_mount_create(fs, mount);
+
+	if (!mnt)
+		return -ENOMEM;
+
+	const int ret = fs->ops->mount(mnt, data, size);
+
+	if (ret) {
+		vfs_mount_destroy(mnt->fs, mnt);
+		return ret;
+	}
+
+	list_add_tail(&mnt->link, &fs_mounts);
+	++fs->refcount;
+	return ret;
+}
+
+int vfs_umount(const char *mount)
+{
+	struct fs_mount *mnt = vfs_lookup_mount(mount);
+
+	if (!mnt)
+		return -ENOENT;
+
+	list_del(&mnt->link);
+	--mnt->fs->refcount;
+	vfs_mount_destroy(mnt->fs, mnt);
+	return 0;
+}
+
 void setup_vfs(void)
 {
 	fs_entry_cache = KMEM_CACHE(struct fs_entry);
