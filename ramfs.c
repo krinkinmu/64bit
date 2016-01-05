@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stddef.h>
 
 #include "kmem_cache.h"
@@ -72,11 +73,11 @@ static bool ramfs_entry_lookup(struct ramfs_node *dir, const char *name,
 		if (!cmp)
 			break;
 
+		parent = *plink;
 		if (cmp < 0)
 			plink = &(*plink)->right;
 		else
 			plink = &(*plink)->left;
-		parent = *plink;
 	}
 
 	iter->entry = entry;
@@ -103,7 +104,6 @@ static int ramfs_entry_unlink(struct ramfs_node *dir, struct fs_entry *entry)
 
 	rb_erase(&iter.entry->link, &dir->children);
 	ramfs_entry_destroy(iter.entry);
-	vfs_node_put(VFS_NODE(dir));
 	vfs_node_put(entry->node);
 	entry->node = 0;
 	return 0;
@@ -156,6 +156,7 @@ static int ramfs_link(struct fs_entry *src, struct fs_node *dir,
 	}
 
 	ramfs_entry_link(parent, entry, &iter);
+	dst->node = vfs_node_get(VFS_NODE(node));
 	return 0;	
 }
 
