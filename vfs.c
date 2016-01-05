@@ -409,6 +409,7 @@ int vfs_umount(const char *mount)
 		return -ENOENT;
 
 	list_del(&mnt->link);
+	mnt->fs->ops->umount(mnt);
 	--mnt->fs->refcount;
 	vfs_mount_destroy(mnt->fs, mnt);
 	return 0;
