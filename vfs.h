@@ -53,7 +53,7 @@ struct fs_node_ops {
 	int (*mkdir)(struct fs_node *, struct fs_entry *);
 	int (*rmdir)(struct fs_node *, struct fs_entry *);
 	int (*lookup)(struct fs_node *, struct fs_entry *);
-	int (*release)(struct fs_node *);
+	void (*release)(struct fs_node *);
 };
 
 /**
