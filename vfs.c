@@ -343,11 +343,10 @@ int vfs_link(const char *oldname, const char *newname)
 		return -EEXIST;
 	}
 
-	const int ret = dir->ops->link(oldentry, dir, newentry);
-
+	rc = dir->ops->link(oldentry, dir, newentry);
 	vfs_entry_put(oldentry);
 	vfs_entry_put(newentry);
-	return ret;
+	return rc;
 }
 
 int vfs_unlink(const char *name)
@@ -366,10 +365,56 @@ int vfs_unlink(const char *name)
 		return -ENOTSUP;
 	}
 
-	const int ret = node->ops->unlink(node, entry);
-
+	rc = node->ops->unlink(node, entry);
 	vfs_entry_put(entry);
-	return ret;
+	return rc;
+}
+
+int vfs_mkdir(const char *name)
+{
+	int rc = 0;
+	struct fs_entry *entry = vfs_resolve_name(name, true, &rc);
+
+	if (!entry)
+		return rc;
+
+	if (entry->node) {
+		vfs_entry_put(entry);
+		return -EEXIST;
+	}
+
+	struct fs_entry *parent = entry->parent;
+	struct fs_node *node = parent->node;
+
+	if (!node->ops->mkdir) {
+		vfs_entry_put(entry);
+		return -ENOTSUP;
+	}
+
+	rc = node->ops->mkdir(node, entry);
+	vfs_entry_put(entry);
+	return rc;
+}
+
+int vfs_rmdir(const char *name)
+{
+	int rc = 0;
+	struct fs_entry *entry = vfs_resolve_name(name, false, &rc);
+
+	if (!entry)
+		return rc;
+
+	struct fs_entry *parent = entry->parent;
+	struct fs_node *node = parent->node;
+
+	if (!node->ops->rmdir) {
+		vfs_entry_put(entry);
+		return -ENOTSUP;
+	}
+
+	rc = node->ops->rmdir(node, entry);
+	vfs_entry_put(entry);
+	return rc;
 }
 
 int register_filesystem(struct fs_type *type)
