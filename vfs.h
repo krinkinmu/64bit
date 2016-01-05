@@ -145,6 +145,10 @@ int vfs_read(struct fs_file *file, char *buffer, size_t size);
 int vfs_write(struct fs_file *file, const char *buffer, size_t size);
 int vfs_readdir(struct fs_file *file, struct dirent *entries, size_t count);
 
+int vfs_link(const char *oldname, const char *newname);
+int vfs_unlink(const char *name);
+int vfs_mkdir(const char *name);
+int vfs_rmdir(const char *name);
 
 void vfs_entry_destroy(struct fs_entry *entry);
 void vfs_entry_evict(struct fs_entry *entry);

@@ -26,13 +26,6 @@ struct fs_entry *vfs_entry_create(const char *name)
 	return entry;
 }
 
-static int vfs_create_child(struct fs_node *dir, struct fs_entry *child)
-{
-	if (!dir->ops->create)
-		return -ENOTSUP;
-	return dir->ops->create(dir, child);
-}
-
 static int vfs_lookup_child(struct fs_node *dir, struct fs_entry *child)
 {
 	if (!dir->ops->lookup)
@@ -68,13 +61,8 @@ static struct fs_entry * vfs_entry_lookup(struct fs_entry *dir,
 		return 0;
 	}
 
-	struct fs_node *node = dir->node;
-
-	*rc = vfs_lookup_child(node, entry);
-	while (*rc) {
-		if (create && (*rc = vfs_create_child(node, entry)) == 0)
-			break;
-
+	*rc = vfs_lookup_child(dir->node, entry);
+	if (*rc && !create) {
 		vfs_entry_put(entry);
 		return 0;
 	}
@@ -207,6 +195,28 @@ static int vfs_file_open(const char *name, struct fs_file *file, bool create)
 	if (!entry)
 		return rc;
 
+	if (create) {
+		struct fs_entry *parent = entry->parent;
+		struct fs_node *node = parent->node;
+
+		if (entry->node) {
+			vfs_entry_put(entry);
+			return -EEXIST;
+		}
+
+		if (!node->ops->create) {
+			vfs_entry_put(entry);
+			return -ENOTSUP;
+		}
+
+		const int ret = node->ops->create(node, entry);
+
+		if (ret) {
+			vfs_entry_put(entry);
+			return ret;
+		}
+	}
+
 	file->entry = entry;
 	file->node = entry->node;
 	file->ops = entry->node->fops;
@@ -302,6 +312,64 @@ int vfs_readdir(struct fs_file *file, struct dirent *entries, size_t count)
 	}
 
 	return -ENOTSUP;
+}
+
+int vfs_link(const char *oldname, const char *newname)
+{
+	int rc = 0;
+	struct fs_entry *oldentry = vfs_resolve_name(oldname, false, &rc);
+
+	if (!oldentry)
+		return rc;
+
+	struct fs_entry *parent = oldentry->parent;
+	struct fs_node *dir = parent->node;
+
+	if (!dir->ops->link) {
+		vfs_entry_put(oldentry);
+		return -ENOTSUP;
+	}
+
+	struct fs_entry *newentry = vfs_resolve_name(newname, true, &rc);
+
+	if (!newentry) {
+		vfs_entry_put(oldentry);
+		return rc;
+	}
+
+	if (newentry->node) {
+		vfs_entry_put(oldentry);
+		vfs_entry_put(newentry);
+		return -EEXIST;
+	}
+
+	const int ret = dir->ops->link(oldentry, dir, newentry);
+
+	vfs_entry_put(oldentry);
+	vfs_entry_put(newentry);
+	return ret;
+}
+
+int vfs_unlink(const char *name)
+{
+	int rc = 0;
+	struct fs_entry *entry = vfs_resolve_name(name, false, &rc);
+
+	if (!entry)
+		return rc;
+
+	struct fs_entry *parent = entry->parent;
+	struct fs_node *node = parent->node;
+
+	if (!node->ops->unlink) {
+		vfs_entry_put(entry);
+		return -ENOTSUP;
+	}
+
+	const int ret = node->ops->unlink(node, entry);
+
+	vfs_entry_put(entry);
+	return ret;
 }
 
 int register_filesystem(struct fs_type *type)
