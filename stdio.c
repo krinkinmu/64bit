@@ -20,7 +20,7 @@ int puts(const char *str)
 
 int printf(const char *fmt, ...)
 {
-	char buffer[1024];
+	char buffer[256];
 	va_list args;
 	int cs;
 
