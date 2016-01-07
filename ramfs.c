@@ -63,28 +63,31 @@ static bool ramfs_entry_lookup(struct ramfs_node *dir, const char *name,
 {
 	struct rb_node **plink = &dir->children.root;
 	struct rb_node *parent = 0;
-	struct ramfs_entry *entry = 0;
+	struct ramfs_entry *entry;
+
+	iter->entry = 0;
 
 	while (*plink) {
 		entry = TREE_ENTRY(*plink, struct ramfs_entry, link);
 
 		const int cmp = strcmp(entry->name, name);
 
-		if (!cmp)
+		if (!cmp) {
+			iter->entry = entry;
 			break;
+		}
 
 		parent = *plink;
 		if (cmp < 0)
-			plink = &(*plink)->right;
+			plink = &parent->right;
 		else
-			plink = &(*plink)->left;
+			plink = &parent->left;
 	}
 
-	iter->entry = entry;
 	iter->parent = parent;
 	iter->plink = plink;
 
-	return entry != 0;
+	return iter->entry != 0;
 }
 
 static void ramfs_entry_link(struct ramfs_node *dir, struct ramfs_entry *entry,
