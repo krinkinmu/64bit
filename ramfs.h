@@ -17,6 +17,6 @@ struct ramfs_entry {
 	char name[MAX_PATH_LEN];
 };
 
-void ramfs_setup(void);
+void setup_ramfs(void);
 
 #endif /*__RAMFS_H__*/

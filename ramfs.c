@@ -32,6 +32,7 @@ static struct ramfs_node *ramfs_node_create(struct fs_node_ops *ops)
 	struct ramfs_node *node = kmem_cache_alloc(ramfs_node_cache);
 
 	if (node) {
+		vfs_debug("Create fs_node");
 		memset(node, 0, sizeof(*node));
 		vfs_node_get(VFS_NODE(node));
 		VFS_NODE(node)->ops = ops;
@@ -147,6 +148,10 @@ static int ramfs_link(struct fs_entry *src, struct fs_node *dir,
 	if (src->node->ops != &ramfs_file_node_ops)
 		return -ENOTSUP;
 
+	/* Just a sanity check */
+	if (dir->ops != &ramfs_dir_node_ops)
+		return -ENOTSUP;
+
 	if (ramfs_entry_lookup(parent, dst->name, &iter))
 		return -EEXIST;
 
@@ -173,6 +178,12 @@ static int ramfs_unlink(struct fs_node *dir, struct fs_entry *entry)
 {
 	struct ramfs_node *parent = RAMFS_NODE(dir);
 
+	if (dir->ops != &ramfs_dir_node_ops)
+		return -ENOTSUP;
+
+	if (!entry->node)
+		return -EINVAL;
+
 	if (entry->node->ops != &ramfs_file_node_ops)
 		return -ENOTSUP;
 
@@ -183,7 +194,7 @@ static int ramfs_rmdir(struct fs_node *dir, struct fs_entry *entry)
 {
 	struct ramfs_node *parent = RAMFS_NODE(dir);
 
-	if (entry->node->ops != &ramfs_dir_node_ops)
+	if (dir->ops != &ramfs_dir_node_ops)
 		return -ENOTSUP;
 
 	return ramfs_entry_unlink(parent, entry);
@@ -194,7 +205,7 @@ static int ramfs_lookup(struct fs_node *dir, struct fs_entry *entry)
 	struct ramfs_node *parent = RAMFS_NODE(dir);
 	struct ramfs_dir_iterator iter;
 
-	if (entry->node->ops != &ramfs_dir_node_ops)
+	if (dir->ops != &ramfs_dir_node_ops)
 		return -ENOTSUP;
 
 	if (!ramfs_entry_lookup(parent, entry->name, &iter))
@@ -206,6 +217,7 @@ static int ramfs_lookup(struct fs_node *dir, struct fs_entry *entry)
 
 static void ramfs_release_file_node(struct fs_node *node)
 {
+	vfs_debug("Destroy file fs_node");
 	free_pages(RAMFS_NODE(node)->page, 0);
 	kmem_cache_free(ramfs_node_cache, node);
 }
@@ -226,6 +238,7 @@ static void ramfs_release_dir_node(struct fs_node *node)
 {
 	struct ramfs_node *dir = RAMFS_NODE(node);
 
+	vfs_debug("Destroy dir fs_node");
 	ramfs_dir_release(dir->children.root);
 	kmem_cache_free(ramfs_node_cache, dir);
 }
