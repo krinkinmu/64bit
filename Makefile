@@ -7,7 +7,8 @@ LFLAGS := -nostdlib -z max-page-size=0x1000
 
 SRC := main.c list.c console.c vga.c string.c stdio.c ctype.c stdlib.c \
 	vsnprintf.c balloc.c memory.c interrupt.c paging.c i8259a.c \
-	kmem_cache.c threads.c time.c scheduler.c vfs.c rbtree.c ramfs.c
+	kmem_cache.c threads.c time.c scheduler.c vfs.c rbtree.c ramfs.c \
+	error.c
 OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 
