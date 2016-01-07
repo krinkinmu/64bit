@@ -42,7 +42,7 @@ struct fs_entry *vfs_entry_create(const char *name)
 	memset(entry, 0, sizeof(*entry));
 	strcpy(entry->name, name);
 	entry->refcount = 1;
-	printf("Create fs_entry %s\n", name);
+	//vfs_debug("Create fs_entry %s", name);
 	return entry;
 }
 
@@ -309,7 +309,7 @@ struct readdir_ctx {
 	size_t pos;
 };
 
-static int readdir_next_entry(struct dir_iter_ctx *ctx, const char *name,
+static bool readdir_next_entry(struct dir_iter_ctx *ctx, const char *name,
 			size_t len)
 {
 	struct readdir_ctx *rdctx = (struct readdir_ctx *)ctx;
@@ -320,10 +320,10 @@ static int readdir_next_entry(struct dir_iter_ctx *ctx, const char *name,
 	if (pos != count) {
 		memset(entries[pos].name, 0, MAX_PATH_LEN);
 		strncpy(entries[pos].name, name, MINU(MAX_PATH_LEN - 1, len));
-		++pos;
+		++rdctx->pos;
+		return true;
 	}
-	rdctx->pos = pos;
-	return pos != count;
+	return false;
 }
 
 int vfs_readdir(struct fs_file *file, struct dirent *entries, size_t count)
