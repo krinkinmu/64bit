@@ -105,9 +105,9 @@ static void test_root(void)
 
 static void test_vfs_and_ramfs(void)
 {
-	test_root();
 	test_create();
 	test_open();
+	test_root();
 	test_unlink();
 	test_root();
 }
