@@ -33,7 +33,7 @@ static int vfs_lookup_child(struct fs_node *dir, struct fs_entry *child)
 	return dir->ops->lookup(dir, child);
 }
 
-static struct fs_entry * vfs_entry_lookup(struct fs_entry *dir,
+static struct fs_entry *vfs_entry_lookup(struct fs_entry *dir,
 			const char *name, bool create, int *rc)
 {
 	struct rb_node **plink = &dir->children.root;
@@ -146,31 +146,47 @@ static struct fs_file_ops fs_root_file_ops = {
 	.iterate = &vfs_root_iterate
 };
 
-
-static const char *vfs_next_entry_name(char *next, const char *full)
+static const char *vfs_path_skip_sep(const char *path)
 {
-	while (*full != '/' && *full != '\0')
+	while (*path && *path == '/')
+		++path;
+	return path;
+}
+
+static const char *vfs_path_next_entry_name(char *next, const char *full)
+{
+	while (*full && *full != '/')
 		*next++ = *full++;
 	*next = '\0';
-	return *full == '/' ? full + 1 : full;
+	return vfs_path_skip_sep(full);
 }
 
 static struct fs_entry *vfs_resolve_name(const char *path, bool create, int *rc)
 {
 	struct fs_entry *entry = vfs_entry_get(&fs_root_entry);
 
-	++path;
-	while (*path) {
+	path = vfs_path_skip_sep(path);
+	while (entry && *path) {
 		char name[MAX_PATH_LEN];
 		struct fs_entry *next;
 
-		path = vfs_next_entry_name(name, path);
+		path = vfs_path_next_entry_name(name, path);
+
+		if (!strcmp(name, "."))
+			continue;
+
+		if (!strcmp(name, "..")) {
+			if (entry->parent) {
+				next = vfs_entry_get(entry->parent);
+				vfs_entry_put(entry);
+				entry = next;
+			}
+			continue;
+		}
+
 		next = vfs_entry_lookup(entry, name, create && *path == 0, rc);
 		vfs_entry_put(entry);
 		entry = next;
-
-		if (!entry)
-			return 0;
 	}
 
 	return entry;
@@ -184,7 +200,7 @@ static void vfs_file_cleanup(struct fs_file *file)
 	file->entry = 0;
 	file->node = 0;
 	file->ops = 0;
-	file->offset = 0;	
+	file->offset = 0;
 }
 
 static int vfs_file_open(const char *name, struct fs_file *file, bool create)
