@@ -12,7 +12,9 @@ static struct kmem_cache *ramfs_node_cache;
 static struct kmem_cache *ramfs_entry_cache;
 
 static struct fs_node_ops ramfs_file_node_ops;
+
 static struct fs_node_ops ramfs_dir_node_ops;
+static struct fs_file_ops ramfs_dir_ops;
 
 struct ramfs_dir_iterator {
 	struct ramfs_entry *entry;
@@ -27,15 +29,17 @@ static struct fs_node *VFS_NODE(struct ramfs_node *node)
 static struct ramfs_node *RAMFS_NODE(struct fs_node *node)
 { return (struct ramfs_node *)node; }
 
-static struct ramfs_node *ramfs_node_create(struct fs_node_ops *ops)
+static struct ramfs_node *ramfs_node_create(struct fs_node_ops *ops,
+			struct fs_file_ops *fops)
 {
 	struct ramfs_node *node = kmem_cache_alloc(ramfs_node_cache);
 
 	if (node) {
-		vfs_debug("Create fs_node");
+		//vfs_debug("Create fs_node");
 		memset(node, 0, sizeof(*node));
 		vfs_node_get(VFS_NODE(node));
 		VFS_NODE(node)->ops = ops;
+		VFS_NODE(node)->fops = fops;
 	}
 	return node;
 }
@@ -114,7 +118,7 @@ static int ramfs_entry_unlink(struct ramfs_node *dir, struct fs_entry *entry)
 }
 
 static int ramfs_create_ops(struct fs_node *dir, struct fs_entry *file,
-			struct fs_node_ops *ops)
+			struct fs_node_ops *ops, struct fs_file_ops *fops)
 {
 	struct ramfs_node *parent = RAMFS_NODE(dir);
 	struct ramfs_dir_iterator iter;
@@ -122,7 +126,7 @@ static int ramfs_create_ops(struct fs_node *dir, struct fs_entry *file,
 	if (ramfs_entry_lookup(parent, file->name, &iter))
 		return -EEXIST;
 
-	struct ramfs_node *node = ramfs_node_create(ops);
+	struct ramfs_node *node = ramfs_node_create(ops, fops);
 
 	if (!node)
 		return -ENOMEM;
@@ -169,10 +173,10 @@ static int ramfs_link(struct fs_entry *src, struct fs_node *dir,
 }
 
 static int ramfs_create(struct fs_node *dir, struct fs_entry *entry)
-{ return ramfs_create_ops(dir, entry, &ramfs_file_node_ops); }
+{ return ramfs_create_ops(dir, entry, &ramfs_file_node_ops, 0); }
 
 static int ramfs_mkdir(struct fs_node *dir, struct fs_entry *entry)
-{ return ramfs_create_ops(dir, entry, &ramfs_dir_node_ops); }
+{ return ramfs_create_ops(dir, entry, &ramfs_dir_node_ops, &ramfs_dir_ops); }
 
 static int ramfs_unlink(struct fs_node *dir, struct fs_entry *entry)
 {
@@ -217,7 +221,7 @@ static int ramfs_lookup(struct fs_node *dir, struct fs_entry *entry)
 
 static void ramfs_release_file_node(struct fs_node *node)
 {
-	vfs_debug("Destroy file fs_node");
+	//vfs_debug("Destroy file fs_node");
 	free_pages(RAMFS_NODE(node)->page, 0);
 	kmem_cache_free(ramfs_node_cache, node);
 }
@@ -238,7 +242,7 @@ static void ramfs_release_dir_node(struct fs_node *node)
 {
 	struct ramfs_node *dir = RAMFS_NODE(node);
 
-	vfs_debug("Destroy dir fs_node");
+	//vfs_debug("Destroy dir fs_node");
 	ramfs_dir_release(dir->children.root);
 	kmem_cache_free(ramfs_node_cache, dir);
 }
@@ -257,12 +261,40 @@ static struct fs_node_ops ramfs_dir_node_ops = {
 	.release = ramfs_release_dir_node
 };
 
+static int ramfs_iterate(struct fs_file *dir, struct dir_iter_ctx *ctx)
+{
+	struct ramfs_node *node = RAMFS_NODE(dir->node);
+	struct rb_node *ptr = rb_leftmost(node->children.root);
+
+	int offset = ctx->offset;
+
+	while (ptr && offset--)
+		ptr = rb_next(ptr);
+
+	while (ptr) {
+		struct ramfs_entry *entry = TREE_ENTRY(ptr,
+			struct ramfs_entry, link);
+
+		ptr = rb_next(ptr);
+		if (!ctx->emit(ctx, entry->name, strlen(entry->name)))
+			break;
+		++ctx->offset;
+	}
+
+	return 0;
+}
+
+static struct fs_file_ops ramfs_dir_ops = {
+	.iterate = ramfs_iterate
+};
+
 static int ramfs_mount(struct fs_mount *mnt, const void *data, size_t size)
 {
 	(void) data;
 	(void) size;
 
-	struct ramfs_node *root = ramfs_node_create(&ramfs_dir_node_ops);
+	struct ramfs_node *root = ramfs_node_create(&ramfs_dir_node_ops,
+		&ramfs_dir_ops);
 
 	if (!root)
 		return -ENOMEM;
