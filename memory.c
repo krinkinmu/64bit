@@ -366,6 +366,9 @@ struct page *alloc_pages(int order, int type)
 
 void free_pages(struct page *pages, int order)
 {
+	if (!pages)
+		return;
+
 	struct memory_node *node = page_node(pages);
 
 	free_pages_node(pages, order, node);
