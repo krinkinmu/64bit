@@ -1,14 +1,15 @@
 #ifndef __RAMFS_H__
 #define __RAMFS_H__
 
-#include "vfs.h"
 #include "rbtree.h"
+#include "list.h"
+#include "vfs.h"
 
 
 struct ramfs_node {
 	struct fs_node vfs_node;
 	struct rb_tree children;
-	struct page *page;
+	struct list_head pages;
 };
 
 struct ramfs_entry {

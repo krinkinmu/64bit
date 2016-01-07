@@ -2,6 +2,7 @@
 #include <stddef.h>
 
 #include "kmem_cache.h"
+#include "paging.h"
 #include "memory.h"
 #include "string.h"
 #include "error.h"
@@ -12,6 +13,7 @@ static struct kmem_cache *ramfs_node_cache;
 static struct kmem_cache *ramfs_entry_cache;
 
 static struct fs_node_ops ramfs_file_node_ops;
+static struct fs_file_ops ramfs_file_ops;
 
 static struct fs_node_ops ramfs_dir_node_ops;
 static struct fs_file_ops ramfs_dir_ops;
@@ -37,6 +39,7 @@ static struct ramfs_node *ramfs_node_create(struct fs_node_ops *ops,
 	if (node) {
 		//vfs_debug("Create fs_node");
 		memset(node, 0, sizeof(*node));
+		list_init(&node->pages);
 		vfs_node_get(VFS_NODE(node));
 		VFS_NODE(node)->ops = ops;
 		VFS_NODE(node)->fops = fops;
@@ -173,7 +176,7 @@ static int ramfs_link(struct fs_entry *src, struct fs_node *dir,
 }
 
 static int ramfs_create(struct fs_node *dir, struct fs_entry *entry)
-{ return ramfs_create_ops(dir, entry, &ramfs_file_node_ops, 0); }
+{ return ramfs_create_ops(dir, entry, &ramfs_file_node_ops, &ramfs_file_ops); }
 
 static int ramfs_mkdir(struct fs_node *dir, struct fs_entry *entry)
 { return ramfs_create_ops(dir, entry, &ramfs_dir_node_ops, &ramfs_dir_ops); }
@@ -221,8 +224,16 @@ static int ramfs_lookup(struct fs_node *dir, struct fs_entry *entry)
 
 static void ramfs_release_file_node(struct fs_node *node)
 {
+	struct list_head *head = &RAMFS_NODE(node)->pages;
+	struct list_head *ptr = head->next;
+
 	//vfs_debug("Destroy file fs_node");
-	free_pages(RAMFS_NODE(node)->page, 0);
+	while (ptr != head) {
+		struct page *page = LIST_ENTRY(ptr, struct page, link);
+
+		ptr = ptr->next;
+		free_pages(page, 0);
+	}
 	kmem_cache_free(ramfs_node_cache, node);
 }
 
@@ -261,6 +272,70 @@ static struct fs_node_ops ramfs_dir_node_ops = {
 	.release = ramfs_release_dir_node
 };
 
+static int ramfs_write(struct fs_file *file, const char *data, size_t size)
+{
+	struct ramfs_node *node = RAMFS_NODE(file->node);
+	struct list_head *head = &node->pages;
+	struct list_head *ptr = head;
+
+	const size_t idx = file->offset >> PAGE_BITS;
+	const size_t off = file->offset & PAGE_MASK;
+	const size_t sz = MINU(PAGE_SIZE - off, size);
+
+	for (size_t i = 0; i <= idx; ++i) {
+		if (ptr->next == head) {
+			struct page *page = alloc_pages(0, NT_HIGH);
+
+			if (!page)
+				return -ENOMEM;
+
+			list_add(&page->link, ptr);
+		}
+		ptr = ptr->next;
+	}
+
+	struct page *page = LIST_ENTRY(ptr, struct page, link);
+	char *vaddr = kmap(page, 1);
+
+	if (!vaddr)
+		return -ENOMEM;
+
+	memcpy(vaddr + off, data, sz);
+	kunmap(vaddr);
+	file->offset += sz;
+
+	return (int)sz;
+}
+
+static int ramfs_read(struct fs_file *file, char *data, size_t size)
+{
+	struct ramfs_node *node = RAMFS_NODE(file->node);
+	struct list_head *head = &node->pages;
+	struct list_head *ptr = head;
+
+	const size_t idx = file->offset >> PAGE_BITS;
+	const size_t off = file->offset & PAGE_MASK;
+	const size_t sz = MINU(PAGE_SIZE - off, size);
+
+	for (size_t i = 0; i <= idx; ++i) {
+		if (ptr->next == head)
+			return 0;
+		ptr = ptr->next;
+	}
+
+	struct page *page = LIST_ENTRY(ptr, struct page, link);
+	char *vaddr = kmap(page, 1);
+
+	if (!vaddr)
+		return -ENOMEM;
+
+	memcpy(data, vaddr + off, sz);
+	kunmap(vaddr);
+	file->offset += sz;
+
+	return (int)sz;	
+}
+
 static int ramfs_iterate(struct fs_file *dir, struct dir_iter_ctx *ctx)
 {
 	struct ramfs_node *node = RAMFS_NODE(dir->node);
@@ -286,6 +361,11 @@ static int ramfs_iterate(struct fs_file *dir, struct dir_iter_ctx *ctx)
 
 static struct fs_file_ops ramfs_dir_ops = {
 	.iterate = ramfs_iterate
+};
+
+static struct fs_file_ops ramfs_file_ops = {
+	.read = ramfs_read,
+	.write = ramfs_write
 };
 
 static int ramfs_mount(struct fs_mount *mnt, const void *data, size_t size)
