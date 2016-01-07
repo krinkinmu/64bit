@@ -13,6 +13,25 @@ static LIST_HEAD(fs_mounts);
 static LIST_HEAD(fs_types);
 
 
+#include <stdarg.h>
+
+#include "vsnprintf.h"
+#include "stdio.h"
+
+void vfs_debug(const char *fmt, ...)
+{
+#ifndef NDEBUG
+	char buffer[256];
+	va_list args;
+
+	va_start(args, fmt);
+	vsnprintf(buffer, sizeof(buffer), fmt, args);
+	va_end(args);
+
+	puts(buffer);
+#endif
+}
+
 struct fs_entry *vfs_entry_create(const char *name)
 {
 	struct fs_entry *entry = kmem_cache_alloc(fs_entry_cache);
@@ -23,12 +42,13 @@ struct fs_entry *vfs_entry_create(const char *name)
 	memset(entry, 0, sizeof(*entry));
 	strcpy(entry->name, name);
 	entry->refcount = 1;
+	printf("Create fs_entry %s\n", name);
 	return entry;
 }
 
 static int vfs_lookup_child(struct fs_node *dir, struct fs_entry *child)
 {
-	if (!dir->ops->lookup)
+	if (!dir->ops || !dir->ops->lookup)
 		return -ENOTSUP;
 	return dir->ops->lookup(dir, child);
 }
@@ -67,6 +87,7 @@ static struct fs_entry *vfs_entry_lookup(struct fs_entry *dir,
 		return 0;
 	}
 
+	*rc = 0;
 	entry->parent = vfs_entry_get(dir);
 	rb_link(&entry->link, parent, plink);
 	rb_insert(&entry->link, &dir->children);
@@ -220,7 +241,7 @@ static int vfs_file_open(const char *name, struct fs_file *file, bool create)
 			return -EEXIST;
 		}
 
-		if (!node->ops->create) {
+		if (!node->ops || !node->ops->create) {
 			vfs_entry_put(entry);
 			return -ENOTSUP;
 		}
@@ -238,7 +259,7 @@ static int vfs_file_open(const char *name, struct fs_file *file, bool create)
 	file->ops = entry->node->fops;
 	file->offset = 0;
 
-	if (file->ops->open) {
+	if (file->ops && file->ops->open) {
 		rc = file->ops->open(file);
 		if (rc)
 			vfs_file_cleanup(file);
@@ -255,7 +276,7 @@ int vfs_open(const char *name, struct fs_file *file)
 
 int vfs_release(struct fs_file *file)
 {
-	if (file->ops->release) {
+	if (file->ops && file->ops->release) {
 		const int ret = file->ops->release(file);
 
 		if (ret)
@@ -268,14 +289,14 @@ int vfs_release(struct fs_file *file)
 
 int vfs_read(struct fs_file *file, char *buffer, size_t size)
 {
-	if (file->ops->read)
+	if (file->ops && file->ops->read)
 		return file->ops->read(file, buffer, size);
 	return -ENOTSUP;
 }
 
 int vfs_write(struct fs_file *file, const char *buffer, size_t size)
 {
-	if (file->ops->write)
+	if (file->ops && file->ops->write)
 		return file->ops->write(file, buffer, size);
 	return -ENOTSUP;
 }
@@ -307,7 +328,7 @@ static int readdir_next_entry(struct dir_iter_ctx *ctx, const char *name,
 
 int vfs_readdir(struct fs_file *file, struct dirent *entries, size_t count)
 {
-	if (file->ops->iterate) {
+	if (file->ops && file->ops->iterate) {
 		struct readdir_ctx ctx;
 
 		ctx.ctx.emit = &readdir_next_entry;
@@ -341,7 +362,7 @@ int vfs_link(const char *oldname, const char *newname)
 	struct fs_entry *parent = oldentry->parent;
 	struct fs_node *dir = parent->node;
 
-	if (!dir->ops->link) {
+	if (!dir->ops || !dir->ops->link) {
 		vfs_entry_put(oldentry);
 		return -ENOTSUP;
 	}
@@ -376,7 +397,7 @@ int vfs_unlink(const char *name)
 	struct fs_entry *parent = entry->parent;
 	struct fs_node *node = parent->node;
 
-	if (!node->ops->unlink) {
+	if (!node->ops || !node->ops->unlink) {
 		vfs_entry_put(entry);
 		return -ENOTSUP;
 	}
@@ -402,7 +423,7 @@ int vfs_mkdir(const char *name)
 	struct fs_entry *parent = entry->parent;
 	struct fs_node *node = parent->node;
 
-	if (!node->ops->mkdir) {
+	if (!node->ops || !node->ops->mkdir) {
 		vfs_entry_put(entry);
 		return -ENOTSUP;
 	}
@@ -423,7 +444,7 @@ int vfs_rmdir(const char *name)
 	struct fs_entry *parent = entry->parent;
 	struct fs_node *node = parent->node;
 
-	if (!node->ops->rmdir) {
+	if (!node->ops || !node->ops->rmdir) {
 		vfs_entry_put(entry);
 		return -ENOTSUP;
 	}
