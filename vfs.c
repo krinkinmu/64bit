@@ -13,24 +13,6 @@ static LIST_HEAD(fs_mounts);
 static LIST_HEAD(fs_types);
 
 
-#include <stdarg.h>
-
-#include "stdio.h"
-
-void vfs_debug(const char *fmt, ...)
-{
-	(void) fmt;
-
-#ifdef CONFIG_VFS_DEBUG_PRINT
-	va_list args;
-
-	va_start(args, fmt);
-	vprintf(fmt, args);
-	putchar('\n');
-	va_end(args);
-#endif /* CONFIG_VFS_DEBUG_PRINT */
-}
-
 struct fs_entry *vfs_entry_create(const char *name)
 {
 	struct fs_entry *entry = kmem_cache_alloc(fs_entry_cache);
@@ -41,7 +23,7 @@ struct fs_entry *vfs_entry_create(const char *name)
 	memset(entry, 0, sizeof(*entry));
 	strcpy(entry->name, name);
 	entry->refcount = 1;
-	vfs_debug("Create fs_entry %s", name);
+	DBG_INFO("Create fs_entry %s", name);
 	return entry;
 }
 

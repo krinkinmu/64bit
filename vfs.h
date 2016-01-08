@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "rbtree.h"
+#include "stdio.h"
 #include "list.h"
 
 #define MAX_PATH_LEN 256
@@ -138,8 +139,6 @@ struct dirent {
 	char name[MAX_PATH_LEN];
 };
 
-void vfs_debug(const char *fmt, ...);
-
 int vfs_create(const char *name, struct fs_file *file);
 int vfs_open(const char *name, struct fs_file *file);
 int vfs_release(struct fs_file *file);
@@ -166,7 +165,7 @@ static inline struct fs_node *vfs_node_get(struct fs_node *node)
 static inline void vfs_node_put(struct fs_node *node)
 {
 	if (--node->refcount == 0) {
-		vfs_debug("Destroy fs_node");
+		DBG_INFO("Destroy fs_node");
 		node->ops->release(node);
 	}
 }
@@ -180,7 +179,7 @@ static inline struct fs_entry *vfs_entry_get(struct fs_entry *entry)
 static inline void vfs_entry_put(struct fs_entry *entry)
 {
 	if (--entry->refcount == 0) {
-		vfs_debug("Destroy fs_entry %s", entry->name);
+		DBG_INFO("Destroy fs_entry %s", entry->name);
 		vfs_entry_destroy(entry);
 	}
 }

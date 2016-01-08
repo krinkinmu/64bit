@@ -102,3 +102,15 @@ int snprintf(char *buf, size_t size, const char *fmt, ...)
 
 	return ret;
 }
+
+void dbg_printf(const char *pref, const char *file, int line,
+			const char *fmt, ...)
+{
+	va_list args;
+
+	va_start(args, fmt);
+	printf("[%s] %s:%d ", pref, file, line);
+	vprintf(fmt, args);
+	putchar('\n');
+	va_end(args);
+}
