@@ -103,6 +103,7 @@ static void ramfs_entry_link(struct ramfs_node *dir, struct ramfs_entry *entry,
 			struct ramfs_dir_iterator *iter)
 {
 	vfs_node_get(VFS_NODE(dir));
+	++VFS_NODE(dir)->size;
 	rb_link(&entry->link, iter->parent, iter->plink);
 	rb_insert(&entry->link, &dir->children);
 }
@@ -115,6 +116,7 @@ static int ramfs_entry_unlink(struct ramfs_node *dir, struct fs_entry *entry)
 		return -ENOENT;
 
 	rb_erase(&iter.entry->link, &dir->children);
+	--VFS_NODE(dir)->size;
 	ramfs_entry_destroy(iter.entry);
 	vfs_node_put(entry->node);
 	entry->node = 0;
@@ -304,6 +306,7 @@ static int ramfs_write(struct fs_file *file, const char *data, size_t size)
 	memcpy(vaddr + off, data, sz);
 	kunmap(vaddr);
 	file->offset += sz;
+	file->node->size = MAX(file->offset, file->node->size);
 
 	return (int)sz;
 }
@@ -314,9 +317,13 @@ static int ramfs_read(struct fs_file *file, char *data, size_t size)
 	struct list_head *head = &node->pages;
 	struct list_head *ptr = head;
 
+	if (file->offset >= file->node->size)
+		return 0;
+
+	const size_t rem = file->node->size - file->offset;
 	const size_t idx = file->offset >> PAGE_BITS;
 	const size_t off = file->offset & PAGE_MASK;
-	const size_t sz = MINU(PAGE_SIZE - off, size);
+	const size_t sz = MINU(MINU(PAGE_SIZE - off, size), rem);
 
 	for (size_t i = 0; i <= idx; ++i) {
 		if (ptr->next == head)
@@ -361,12 +368,14 @@ static int ramfs_iterate(struct fs_file *dir, struct dir_iter_ctx *ctx)
 }
 
 static struct fs_file_ops ramfs_dir_ops = {
-	.iterate = ramfs_iterate
+	.iterate = ramfs_iterate,
+	.seek = vfs_seek_default
 };
 
 static struct fs_file_ops ramfs_file_ops = {
 	.read = ramfs_read,
-	.write = ramfs_write
+	.write = ramfs_write,
+	.seek = vfs_seek_default
 };
 
 static int ramfs_mount(struct fs_mount *mnt, const void *data, size_t size)

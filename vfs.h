@@ -64,11 +64,18 @@ struct fs_node_ops {
  * writes - writed data to the file from the specified buffer
  * iterate - readdir but with little bit tricky interface.
  */
+enum fs_seek_base {
+	FSS_SET,
+	FSS_CUR,
+	FSS_END
+};
+
 struct fs_file_ops {
 	int (*open)(struct fs_file *);
 	int (*release)(struct fs_file *);
 	int (*read)(struct fs_file *, char *, size_t);
 	int (*write)(struct fs_file *, const char *, size_t);
+	int (*seek)(struct fs_file *, int off, int whence);
 	int (*iterate)(struct fs_file *, struct dir_iter_ctx *);
 };
 
@@ -99,6 +106,7 @@ struct fs_mount {
 struct fs_node {
 	struct fs_node_ops *ops;
 	struct fs_file_ops *fops;
+	int size;
 	int refcount;
 };
 
@@ -144,6 +152,10 @@ int vfs_open(const char *name, struct fs_file *file);
 int vfs_release(struct fs_file *file);
 int vfs_read(struct fs_file *file, char *buffer, size_t size);
 int vfs_write(struct fs_file *file, const char *buffer, size_t size);
+
+int vfs_seek_default(struct fs_file *file, int off, int whence);
+int vfs_seek(struct fs_file *file, int off, int whence);
+
 int vfs_readdir(struct fs_file *file, struct dirent *entries, size_t count);
 
 int vfs_link(const char *oldname, const char *newname);

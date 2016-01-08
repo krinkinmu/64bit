@@ -282,6 +282,29 @@ int vfs_write(struct fs_file *file, const char *buffer, size_t size)
 	return -ENOTSUP;
 }
 
+int vfs_seek_default(struct fs_file *file, int offset, int whence)
+{
+	switch (whence) {
+	case FSS_CUR:
+		offset += file->offset;
+		break;
+	case FSS_END:
+		offset += file->node->size;
+		break;
+	}
+
+	offset = MAX(offset, 0);
+	file->offset = offset;
+	return offset;
+}
+
+int vfs_seek(struct fs_file *file, int offset, int whence)
+{
+	if (file->ops && file->ops->seek)
+		return file->ops->seek(file, offset, whence);
+	return -ENOTSUP;
+}
+
 
 struct readdir_ctx {
 	struct dir_iter_ctx ctx;
