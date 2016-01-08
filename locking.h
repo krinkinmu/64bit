@@ -64,25 +64,31 @@ static inline void wait_queue_init(struct wait_queue *wq)
 	spinlock_init(&wq->lock);
 }
 
-void __wait_queue_wait(struct wait_queue *queue, struct wait_head *head);
-void wait_queue_wait(struct wait_queue *queue, struct wait_head *head);
 void wait_queue_notify(struct wait_queue *queue);
 void wait_queue_notify_all(struct wait_queue *queue);
 
 #define WAIT_EVENT(wq, cond) \
 	do { 								\
 		struct wait_queue *__WAIT_EVENT_wq = (wq);		\
-		struct wait_head __WAIT_EVEN_wh;			\
-		unsigned long __WAIT_EVENT_flags;			\
+		struct wait_head __WAIT_EVENT_wh;			\
+		bool __WAIT_EVENT_enabled;				\
 									\
-		__WAIT_EVENT_flags =					\
+		__WAIT_EVENT_wh.thread = current();			\
+		__WAIT_EVENT_enabled =					\
 			spin_lock_irqsave(&__WAIT_EVENT_wq->lock);	\
 									\
-		while (!(cond))						\
-			__wait_queue_wait((wq), &__WAIT_EVENT_wh);	\
+		while (!(cond)) {					\
+			__WAIT_EVENT_wh.thread->state = THREAD_BLOCKED;	\
+			list_add_tail(&__WAIT_EVENT_wh.link,		\
+				&__WAIT_EVENT_wq->threads);		\
+			spin_unlock_irqrestore(&__WAIT_EVENT_wq->lock,	\
+				__WAIT_EVENT_enabled);			\
+			schedule();					\
+			spin_lock(&__WAIT_EVENT_wq->lock);		\
+		}							\
 									\
 		spin_unlock_irqrestore(&__WAIT_EVENT_wq->lock,		\
-			__WAIT_EVENT_flags);				\
+			__WAIT_EVENT_enabled);				\
 	} while (0);
 
 

@@ -1,20 +1,6 @@
 #include "locking.h"
 #include "threads.h"
 
-void __wait_queue_wait(struct wait_queue *queue, struct wait_head *head)
-{
-	head->thread = current();
-	list_add_tail(&head->link, &queue->threads);
-	block_thread();
-}
-
-void wait_queue_wait(struct wait_queue *queue, struct wait_head *head)
-{
-	const unsigned long flags = spin_lock_irqsave(&queue->lock);
-
-	__wait_queue_wait(queue, head);
-	spin_unlock_irqrestore(&queue->lock, flags);
-}
 
 static void __wait_queue_notify(struct wait_queue *queue)
 {
@@ -53,22 +39,23 @@ void wait_queue_notify_all(struct wait_queue *queue)
 	}
 }
 
-void mutex_lock(struct mutex *mutex)
+static bool __mutex_try_lock(struct mutex *mutex)
 {
-	struct wait_head wait;
-	const unsigned long flags = spin_lock_irqsave(&mutex->wq.lock);
-
-	while (mutex->state == MUTEX_STATE_LOCKED)
-		__wait_queue_wait(&mutex->wq, &wait);
-	mutex->state = MUTEX_STATE_LOCKED;
-	spin_unlock_irqrestore(&mutex->wq.lock, flags);
+	if (mutex->state == MUTEX_STATE_UNLOCKED) {
+		mutex->state = MUTEX_STATE_LOCKED;
+		return true;
+	}
+	return false;
 }
+
+void mutex_lock(struct mutex *mutex)
+{ WAIT_EVENT(&mutex->wq, __mutex_try_lock(mutex)); }
 
 void mutex_unlock(struct mutex *mutex)
 {
-	const unsigned long flags = spin_lock_irqsave(&mutex->wq.lock);
+	const bool enabled = spin_lock_irqsave(&mutex->wq.lock);
 
 	mutex->state = MUTEX_STATE_UNLOCKED;
 	__wait_queue_notify(&mutex->wq);
-	spin_unlock_irqrestore(&mutex->wq.lock, flags);
+	spin_unlock_irqrestore(&mutex->wq.lock, enabled);
 }
