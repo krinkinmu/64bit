@@ -77,7 +77,7 @@ static void vsinkprintf_buffer_write(struct vsinkprintf_sink *sink,
 	buf->pos += size;
 }
 
-int snprintf(char *buf, size_t size, const char *fmt, ...)
+int vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 {
 	struct vsinkprintf_buffer_sink sink = {
 		{ &vsinkprintf_buffer_write },
@@ -85,13 +85,20 @@ int snprintf(char *buf, size_t size, const char *fmt, ...)
 		size,
 		0
 	};
+	vsinkprintf(&sink.sink, fmt, args);
+	sink.data[MIN(sink.size - 1, sink.pos)] = 0;
+	return sink.pos;
+}
+
+int snprintf(char *buf, size_t size, const char *fmt, ...)
+{
 	va_list args;
 
 	va_start(args, fmt);
-	vsinkprintf(&sink.sink, fmt, args);
+
+	const int ret = vsnprintf(buf, size, fmt, args);
+
 	va_end(args);
 
-	sink.data[MIN(sink.size - 1, sink.pos)] = 0;
-
-	return sink.pos;
+	return ret;
 }
