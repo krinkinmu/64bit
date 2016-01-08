@@ -8,18 +8,25 @@
 
 #include <stdarg.h>
 
-static void ramfs_dbg(const char *file, int line, const char *fmt, ...)
+static void ramfs_dbg(const char *level, const char *file, int line,
+			const char *fmt, ...)
 {
 	va_list args;
 
 	va_start(args, fmt);
-	printf("%s:%d ", file, line);
+	printf("[%s] %s:%d ", level, file, line);
 	vprintf(fmt, args);
 	putchar('\n');
 	va_end(args);
 }
 
-#define RAMFS_DBG(...) ramfs_dbg(__FILE__, __LINE__, __VA_ARGS__)
+#ifdef CONFIG_RAMFS_TEST_VERBOSE
+#define RAMFS_DBG(...) ramfs_dbg("DBG", __FILE__, __LINE__, __VA_ARGS__)
+#else
+#define RAMFS_DBG(...) do {} while (0)
+#endif
+
+#define RAMFS_ERR(...) ramfs_dbg("ERR", __FILE__, __LINE__, __VA_ARGS__)
 
 static void test_readdir(struct fs_file *dir)
 {
@@ -29,9 +36,9 @@ static void test_readdir(struct fs_file *dir)
 	if (rc >= 0) {
 		RAMFS_DBG("vfs_readdir returned %d entries", rc);
 		for (int i = 0; i != rc; ++i)
-			vfs_debug("entry: %s", entries[i].name);
+			RAMFS_DBG("entry: %s", entries[i].name);
 	} else {
-		RAMFS_DBG("vfs_readdir failed with error: %s", errstr(rc));
+		RAMFS_ERR("vfs_readdir failed with error: %s", errstr(rc));
 	}
 }
 
@@ -47,10 +54,10 @@ static void test_create(void)
 		if (!rc)
 			RAMFS_DBG("vfs_release succeeded");
 		else
-			RAMFS_DBG("vfs_release failed with error: %s",
+			RAMFS_ERR("vfs_release failed with error: %s",
 				errstr(rc));
 	} else {
-		RAMFS_DBG("vfs_create(%s) failed with error: %s",
+		RAMFS_ERR("vfs_create(%s) failed with error: %s",
 			file_path, errstr(rc));
 	}
 }
@@ -67,10 +74,10 @@ static void test_open(void)
 		if (!rc)
 			RAMFS_DBG("vfs_release succeeded");
 		else
-			RAMFS_DBG("vfs_release failed with error: %s",
+			RAMFS_ERR("vfs_release failed with error: %s",
 				errstr(rc));
 	} else {
-		RAMFS_DBG("vfs_open(%s) failed with error: %s",
+		RAMFS_ERR("vfs_open(%s) failed with error: %s",
 			file_path, errstr(rc));
 	}
 }
@@ -83,7 +90,7 @@ static void test_unlink(void)
 	if (!rc)
 		RAMFS_DBG("vfs_unlink(%s) succeeded", file_path);
 	else
-		RAMFS_DBG("vfs_unlink(%s) failed with error: %s",
+		RAMFS_ERR("vfs_unlink(%s) failed with error: %s",
 			file_path, errstr(rc));
 }
 
@@ -98,12 +105,12 @@ static void test_root(void)
 		test_readdir(&root_dir);
 		rc = vfs_release(&root_dir);
 		if (rc)
-			RAMFS_DBG("vfs_release failed with error: %s",
+			RAMFS_ERR("vfs_release failed with error: %s",
 				errstr(rc));
 		else
 			RAMFS_DBG("vfs_release succeeded");
 	} else {
-		RAMFS_DBG("vfs_open(%s) failed with error: %s",
+		RAMFS_ERR("vfs_open(%s) failed with error: %s",
 			root_path, errstr(rc));
 	}
 }
@@ -126,10 +133,10 @@ void ramfs_test(void)
 		ramfs_do_test();
 		rc = vfs_umount(RAMFS_ROOT);
 		if (rc)
-			RAMFS_DBG("vfs_umount failed with %d", rc);
+			RAMFS_ERR("vfs_umount failed with %d", rc);
 		else
 			RAMFS_DBG("successfully unmounted");
 	} else {
-		RAMFS_DBG("vfs_mount failed with %d", rc);
+		RAMFS_ERR("vfs_mount failed with %d", rc);
 	}
 }
