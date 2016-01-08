@@ -1,4 +1,5 @@
-#include "vsnprintf.h"
+#include "vsinkprintf.h"
+#include "kernel.h"
 #include "string.h"
 #include "stdlib.h"
 #include "ctype.h"
@@ -36,6 +37,32 @@ struct format_spec {
 	int qualifier;
 	int width;
 };
+
+static void vsinkprintf_write(struct vsinkprintf_sink *sink,
+			const char *data, size_t size)
+{ sink->write(sink, data, size); }
+
+static void vsinkprintf_putchar(struct vsinkprintf_sink *sink, int c)
+{
+	const char buf = c;
+
+	sink->write(sink, &buf, 1);
+}
+
+static void vsinkprintf_repeat(struct vsinkprintf_sink *sink, int c,
+			size_t count)
+{
+	for (size_t i = 0; i != count; ++i)
+		vsinkprintf_putchar(sink, c);
+}
+
+static void vsinkprintf_puts_nonewline(struct vsinkprintf_sink *sink,
+			const char *str)
+{
+	const size_t len = strlen(str);
+
+	sink->write(sink, str, len);
+}
 
 static int format_decode(const char *fmt, struct format_spec *spec)
 {
@@ -168,7 +195,7 @@ static int untoa(uintmax_t value, char *str, int base)
 	return pos;
 }
 
-static char *format_number(char *buf, char *end, uintmax_t value,
+static void format_number(struct vsinkprintf_sink *sink, uintmax_t value,
 			const struct format_spec *spec)
 {
 	const intmax_t svalue = value;
@@ -177,7 +204,6 @@ static char *format_number(char *buf, char *end, uintmax_t value,
 	const char *sign = "";
 	const char *prefix = "";
 	const char *num;
-	char *ret;
 	int len, padding;
 
 	if ((spec->flags & FF_SIGNED) && svalue < 0) {
@@ -205,29 +231,16 @@ static char *format_number(char *buf, char *end, uintmax_t value,
 	padding = 0;
 	if (len < spec->width)
 		padding = spec->width - len;
-	ret = buf + len + padding;
 
-	while (padding && buf < end) {
-		*buf++ = ' ';
-		--padding;
-	}
-
-	while (*sign && buf < end)
-		*buf++ = *sign++;
-
-	while (*prefix && buf < end)
-		*buf++ = *prefix++;
-
-	while (*num && buf < end)
-		*buf++ = *num++;
-
-	return ret;
+	vsinkprintf_repeat(sink, ' ', padding);
+	vsinkprintf_puts_nonewline(sink, sign);
+	vsinkprintf_puts_nonewline(sink, prefix);
+	vsinkprintf_puts_nonewline(sink, num);
 }
 
-int vsnprintf(char *buf, const size_t size, const char *fmt, va_list args)
+void vsinkprintf(struct vsinkprintf_sink *sink, const char *fmt, va_list args)
 {
 	struct format_spec spec;
-	char *str = buf, *end = str + size;
 
 	while (*fmt) {
 		const char *save = fmt;
@@ -237,29 +250,15 @@ int vsnprintf(char *buf, const size_t size, const char *fmt, va_list args)
 
 		switch (spec.type) {
 		case FT_NONE: {
-			int tocopy = read;
-
-			if (str < end) {
-				if (tocopy > end - str)
-					tocopy = end - str;
-				memcpy(str, save, tocopy);
-			}
-			str += read;
+			vsinkprintf_write(sink, save, read);
 			break;
 		}
 
 		case FT_CHAR: {
 			char c = va_arg(args, int);
 
-			while (spec.width-- > 0) {
-				if (str < end)
-					*str = ' ';
-				++str;
-			}
-
-			if (str < end)
-				*str = c;
-			++str;
+			vsinkprintf_repeat(sink, ' ', MAX(spec.width, 0));
+			vsinkprintf_putchar(sink, c);
 			break;
 		}
 
@@ -267,32 +266,17 @@ int vsnprintf(char *buf, const size_t size, const char *fmt, va_list args)
 			const char *toprint = va_arg(args, const char *);
 			const int len = strlen(toprint);
 
-			while (spec.width > len) {
-				if (str < end)
-					*str = ' ';
-				++str;
-				--spec.width;
-			}
-
-			while (*toprint) {
-				if (str < end)
-					*str = *toprint;
-				++str;
-				++toprint;
-			}
+			vsinkprintf_repeat(sink, ' ', MAX(spec.width - len, 0));
+			vsinkprintf_puts_nonewline(sink, toprint);
 			break;
 		}
 
 		case FT_PERCENT:
-			if (str < end)
-				*str = '%';
-			++str;
+			vsinkprintf_putchar(sink, '%');
 			break;
 
 		case FT_INVALID:
-			if (str < end)
-				*str = '?';
-			++str;
+			vsinkprintf_putchar(sink, '?');
 			break;
 
 		default: {
@@ -322,29 +306,10 @@ int vsnprintf(char *buf, const size_t size, const char *fmt, va_list args)
 				break;
 			}
 
-			str = format_number(str, end, value, &spec);
+			format_number(sink, value, &spec);
 			break;
 		}
 
 		}
 	}
-
-	if (size) {
-		if (str >= end)
-			*(end - 1) = 0;
-		else
-			*str = 0;
-	}
-	return str - buf;
-}
-
-int snprintf(char *buf, size_t size, const char *fmt, ...)
-{
-	va_list args;
-	int cs;
-
-	va_start(args, fmt);
-	cs = vsnprintf(buf, size, fmt, args);
-	va_end(args);
-	return cs;
 }
