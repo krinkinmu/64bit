@@ -4,6 +4,35 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "interrupt.h"
+
+
+static inline void local_preempt_disable(void)
+{ local_irq_disable(); }
+
+static inline void local_preempt_enable(void)
+{ local_irq_enable(); }
+
+static inline bool local_preempt_enabled(void)
+{ return local_irq_enabled(); }
+
+static inline bool local_preempt_disabled(void)
+{ return local_irq_disabled(); }
+
+static inline bool local_preempt_save(void)
+{
+	const bool enabled = local_preempt_enabled();
+
+	local_preempt_disable();
+	return enabled;
+}
+
+static inline void local_preempt_restore(bool enabled)
+{
+	if (enabled)
+		local_preempt_enable();
+}
+
 enum thread_state {
 	THREAD_NONE,
 	THREAD_NEW,

@@ -1,6 +1,6 @@
 #include <stdint.h>
 
-#include "interrupt.h"
+#include "locking.h"
 #include "kernel.h"
 #include "memory.h"
 #include "balloc.h"
@@ -52,6 +52,7 @@ static void __memory_node_add(enum node_type type, unsigned long begin,
 	const pfn_t pfn = begin >> PAGE_BITS;
 
 	list_init(&node->link);
+	spinlock_init(&node->lock);
 	node->begin_pfn = pfn;
 	node->end_pfn = pfn + pages;
 	node->id = memory_nodes++;
@@ -270,10 +271,10 @@ static struct page *__alloc_pages_node(int order, struct memory_node *node)
 
 struct page *alloc_pages_node(int order, struct memory_node *node)
 {
-	const unsigned long flags = local_irqsave();
+	const bool enabled = spin_lock_irqsave(&node->lock);
 	struct page * pages = __alloc_pages_node(order, node);
 
-	local_irqrestore(flags);
+	spin_unlock_irqrestore(&node->lock, enabled);
 
 	return pages;
 }
@@ -341,10 +342,10 @@ void free_pages_node(struct page *pages, int order, struct memory_node *node)
 	if (!pages)
 		return;
 
-	const unsigned long flags = local_irqsave();
+	const bool enabled = spin_lock_irqsave(&node->lock);
 
 	__free_pages_node(pages, order, node);
-	local_irqrestore(flags);	
+	spin_unlock_irqrestore(&node->lock, enabled);	
 }
 
 struct page *alloc_pages(int order, int type)

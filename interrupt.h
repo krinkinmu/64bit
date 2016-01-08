@@ -1,6 +1,10 @@
 #ifndef __INTERRUPT_H__
 #define __INTERRUPT_H__
 
+#include <stdbool.h>
+
+#define RFLAGS_IF (1ul << 9)
+
 struct interrupt_frame {
 	unsigned long r15;
 	unsigned long r14;
@@ -45,6 +49,12 @@ inline static unsigned long local_save_flags(void)
 inline static void local_restore_flags(unsigned long flags)
 { __asm__ volatile("push %0 ; popf" : : "g"(flags) : "memory"); }
 
+inline static bool local_irq_enabled(void)
+{ return (local_save_flags() & RFLAGS_IF) != 0; }
+
+inline static bool local_irq_disabled(void)
+{ return !local_irq_enabled(); }
+
 inline static unsigned long local_irqsave(void)
 {
 	const unsigned long flags = local_save_flags();
@@ -54,7 +64,10 @@ inline static unsigned long local_irqsave(void)
 }
 
 inline static void local_irqrestore(unsigned long flags)
-{ local_restore_flags(flags); }
+{
+	if (flags & RFLAGS_IF)
+		local_irq_enable();
+}
 
 void register_irq_handler(int irq, irq_t isr);
 void unregister_irq_handler(int irq, irq_t isr);

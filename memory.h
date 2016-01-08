@@ -1,6 +1,7 @@
 #ifndef __MEMORY_H__
 #define __MEMORY_H__
 
+#include "locking.h"
 #include "balloc.h"
 #include "list.h"
 
@@ -91,6 +92,7 @@ enum node_type {
 struct memory_node {
 	struct list_head link;
 	struct page *mmap;
+	struct spinlock lock;
 	pfn_t begin_pfn;
 	pfn_t end_pfn;
 	int id;

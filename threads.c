@@ -1,4 +1,3 @@
-#include "interrupt.h"
 #include "threads.h"
 #include "string.h"
 #include "time.h"
@@ -56,7 +55,7 @@ void thread_entry(struct thread *thread, void (*fptr)(void *), void *data)
 {
 	place_thread(thread);
 
-	local_irq_enable();
+	local_preempt_enable();
 	fptr(data);
 
 	finish_thread();
@@ -105,11 +104,11 @@ void activate_thread(struct thread *thread)
 
 void block_thread(void)
 {
-	const unsigned long flags = local_irqsave();
+	const bool enabled = local_preempt_save();
 
 	current_thread->state = THREAD_BLOCKED;
 	schedule();
-	local_irqrestore(flags);
+	local_preempt_restore(enabled);
 }
 
 void wait_thread(struct thread *thread)
@@ -120,7 +119,7 @@ void wait_thread(struct thread *thread)
 
 void finish_thread(void)
 {
-	local_irq_disable();
+	local_preempt_disable();
 	current_thread->state = THREAD_FINISHED;
 	schedule();
 }
@@ -144,23 +143,23 @@ static struct thread *next_thread(void)
 
 void schedule(void)
 {
-	const unsigned long flags = local_irqsave();
+	const bool enabled = local_preempt_save();
 	struct thread *thread = next_thread();
 
 	if (thread == current_thread) {
-		local_irqrestore(flags);
+		local_preempt_restore(enabled);
 		return;
 	}
 	
 	const bool force = (current_thread->state != THREAD_ACTIVE);
 
 	if (!force && !thread) {
-		local_irqrestore(flags);
+		local_preempt_restore(enabled);
 		return;
 	}
 
 	switch_to(thread ? thread : &bootstrap);
-	local_irqrestore(flags);
+	local_preempt_restore(enabled);
 }
 
 bool need_resched(void)
