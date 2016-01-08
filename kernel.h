@@ -1,6 +1,8 @@
 #ifndef __KERNEL_H__
 #define __KERNEL_H__
 
+#include "kernel_config.h"
+
 #include <stddef.h>
 #include <stdint.h>
 

@@ -15,21 +15,20 @@ static LIST_HEAD(fs_types);
 
 #include <stdarg.h>
 
-#include "vsnprintf.h"
 #include "stdio.h"
 
 void vfs_debug(const char *fmt, ...)
 {
-#ifndef NDEBUG
-	char buffer[256];
+	(void) fmt;
+
+#ifdef CONFIG_VFS_DEBUG_PRINT
 	va_list args;
 
 	va_start(args, fmt);
-	vsnprintf(buffer, sizeof(buffer), fmt, args);
+	vprintf(fmt, args);
+	putchar('\n');
 	va_end(args);
-
-	puts(buffer);
-#endif
+#endif /* CONFIG_VFS_DEBUG_PRINT */
 }
 
 struct fs_entry *vfs_entry_create(const char *name)
@@ -42,7 +41,7 @@ struct fs_entry *vfs_entry_create(const char *name)
 	memset(entry, 0, sizeof(*entry));
 	strcpy(entry->name, name);
 	entry->refcount = 1;
-	//vfs_debug("Create fs_entry %s", name);
+	vfs_debug("Create fs_entry %s", name);
 	return entry;
 }
 

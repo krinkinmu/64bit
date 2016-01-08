@@ -1,3 +1,5 @@
+#include "kernel_config.h"
+
 #define MB_HEADER_MAGIC 0x1BADB002
 #define MB_HEADER_FLAGS ((1 << 16) | (1 << 1))
 #define MB_HEADER_CKSUM -(MB_HEADER_MAGIC + MB_HEADER_FLAGS)
@@ -257,8 +259,9 @@ start64:
 	cld
 	movabsq $main, %rax
 
-	/* Remember problems with QEMU, GDB and mode switches */
-//1:	jmp 1b
+#ifdef CONFIG_QEMU_GDB_HANG
+1:	jmp 1b
+#endif /* CONFIG_QEMU_GDB_HANG */
 
 	call *%rax
 
