@@ -38,8 +38,8 @@ static struct ramfs_node *ramfs_node_create(struct fs_node_ops *ops,
 	struct ramfs_node *node = kmem_cache_alloc(ramfs_node_cache);
 
 	if (node) {
-		DBG_INFO("Create fs_node");
 		memset(node, 0, sizeof(*node));
+		vfs_node_init(VFS_NODE(node));
 		list_init(&node->pages);
 		vfs_node_get(VFS_NODE(node));
 		VFS_NODE(node)->ops = ops;
@@ -118,7 +118,6 @@ static int ramfs_entry_unlink(struct ramfs_node *dir, struct fs_entry *entry)
 	rb_erase(&iter.entry->link, &dir->children);
 	--VFS_NODE(dir)->size;
 	ramfs_entry_destroy(iter.entry);
-	vfs_entry_evict(entry);
 	vfs_entry_detach(entry);
 	return 0;
 }
@@ -230,7 +229,6 @@ static void ramfs_release_file_node(struct fs_node *node)
 	struct list_head *head = &RAMFS_NODE(node)->pages;
 	struct list_head *ptr = head->next;
 
-	DBG_INFO("Destroy file fs_node");
 	while (ptr != head) {
 		struct page *page = LIST_ENTRY(ptr, struct page, link);
 
@@ -256,7 +254,6 @@ static void ramfs_release_dir_node(struct fs_node *node)
 {
 	struct ramfs_node *dir = RAMFS_NODE(node);
 
-	DBG_INFO("Destroy dir fs_node");
 	ramfs_dir_release(dir->children.root);
 	kmem_cache_free(ramfs_node_cache, dir);
 }
@@ -410,6 +407,7 @@ void setup_ramfs(void)
 {
 	ramfs_node_cache = KMEM_CACHE(struct ramfs_node);
 	ramfs_entry_cache = KMEM_CACHE(struct ramfs_entry);
+
 	register_filesystem(&ramfs_type);
 
 #ifdef CONFIG_RAMFS_TEST
