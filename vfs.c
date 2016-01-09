@@ -13,7 +13,7 @@ static LIST_HEAD(fs_mounts);
 static LIST_HEAD(fs_types);
 
 
-struct fs_entry *vfs_entry_create(const char *name)
+static struct fs_entry *vfs_entry_create(const char *name)
 {
 	struct fs_entry *entry = kmem_cache_alloc(fs_entry_cache);
 
@@ -21,84 +21,236 @@ struct fs_entry *vfs_entry_create(const char *name)
 		return 0;
 
 	memset(entry, 0, sizeof(*entry));
+	spinlock_init(&entry->lock);
 	strcpy(entry->name, name);
 	entry->refcount = 1;
-	DBG_INFO("Create fs_entry %s", name);
 	return entry;
 }
 
-static int vfs_lookup_child(struct fs_node *dir, struct fs_entry *child)
+static void __vfs_entry_detach(struct fs_entry *entry, struct fs_entry *dir)
 {
-	if (!dir->ops || !dir->ops->lookup)
-		return -ENOTSUP;
-	return dir->ops->lookup(dir, child);
+	if (entry->cached) {
+		rb_erase(&entry->link, &dir->children);
+		entry->cached = false;
+	}
 }
 
-static struct fs_entry *vfs_entry_lookup(struct fs_entry *dir,
-			const char *name, bool create, int *rc)
+void vfs_entry_detach(struct fs_entry *entry)
 {
+	struct fs_entry *parent = entry->parent;
+	const bool enabled = spin_lock_irqsave(&parent->lock);
+	__vfs_entry_detach(entry, parent);
+	spin_unlock_irqrestore(&parent->lock, enabled);
+}
+
+struct fs_entry *vfs_entry_get(struct fs_entry *entry)
+{
+	if (entry) {	
+		const bool enabled = spin_lock_irqsave(&entry->lock);
+		++entry->refcount;
+		spin_unlock_irqrestore(&entry->lock, enabled);
+	}
+	return entry;
+}
+
+void vfs_entry_put(struct fs_entry *entry)
+{
+	struct fs_entry *dir = entry->parent;
+
+	const bool enabled = spin_lock_irqsave(&entry->lock);
+	const int refcount = --entry->refcount;
+	spin_unlock_irqrestore(&entry->lock, enabled);
+
+	if (refcount != 0)
+		return;
+
+	spin_lock(&dir->lock);
+	spin_lock(&entry->lock);
+
+	if (entry->refcount) {
+		spin_unlock_irqrestore(&entry->lock, false);
+		spin_unlock_irqrestore(&dir->lock, enabled);
+		return;
+	}
+	__vfs_entry_detach(entry, dir);
+
+	spin_unlock_irqrestore(&entry->lock, false);
+	spin_unlock_irqrestore(&dir->lock, enabled);
+
+	vfs_entry_put(entry->parent);
+	vfs_node_put(entry->node);
+	kmem_cache_free(fs_entry_cache, entry);
+}
+
+void vfs_node_destroy(struct fs_node *node)
+{ node->ops->release(node); }
+
+
+static struct fs_entry *vfs_lookup(struct fs_entry *dir, const char *name,
+			bool create, int *rc)
+{
+	struct fs_node *node = dir->node;
 	struct rb_node **plink = &dir->children.root;
 	struct rb_node *parent = 0;
-	struct fs_entry *entry;
+
+	if (!node->ops || !node->ops->lookup) {
+		*rc = -ENOTSUP;
+		return 0;
+	}
+
+	const bool enabled = spin_lock_irqsave(&dir->lock);
 
 	while (*plink) {
-		parent = *plink;
-		entry = TREE_ENTRY(parent, struct fs_entry, link);
+		struct fs_entry *entry = TREE_ENTRY(*plink, struct fs_entry,
+			link);
 
 		const int cmp = strcmp(entry->name, name);
 
-		if (!cmp)
-			return vfs_entry_get(entry);
+		if (!cmp) {
+			*rc = 0;
+			vfs_entry_get(entry);
+			spin_unlock_irqrestore(&dir->lock, enabled);
+			return entry;
+		}
 
+		parent = *plink;
 		if (cmp < 0)
 			plink = &parent->right;
 		else
 			plink = &parent->left;
 	}
 
-	entry = vfs_entry_create(name);
+	struct fs_entry *entry = vfs_entry_create(name);
+
 	if (!entry) {
+		spin_unlock_irqrestore(&dir->lock, enabled);
 		*rc = -ENOMEM;
 		return 0;
 	}
 
-	*rc = vfs_lookup_child(dir->node, entry);
+	rb_link(&entry->link, parent, plink);
+	rb_insert(&entry->link, &dir->children);
+	entry->parent = vfs_entry_get(dir);
+	entry->cached = true;
+	spin_unlock_irqrestore(&dir->lock, enabled);
+
+	*rc = node->ops->lookup(node, entry);
 	if (*rc && !create) {
 		vfs_entry_put(entry);
 		return 0;
 	}
 
-	*rc = 0;
-	entry->parent = vfs_entry_get(dir);
-	rb_link(&entry->link, parent, plink);
-	rb_insert(&entry->link, &dir->children);
 	return entry;
 }
 
-void vfs_entry_evict(struct fs_entry *entry)
+
+struct vfs_walk_data {
+	struct fs_entry *entry;
+	char next[MAX_PATH_LEN];
+	const char *tail;
+};
+
+static const char *vfs_path_skip_sep(const char *path)
 {
-	if (entry->parent) {
-		rb_erase(&entry->link, &entry->parent->children);
-		vfs_entry_put(entry->parent);
-		entry->parent = 0;
+	while (*path && *path == '/')
+		++path;
+	return path;
+}
+
+static const char *vfs_path_next_entry(char *next, const char *full)
+{
+	while (*full && *full != '/')
+		*next++ = *full++;
+	*next = '\0';
+	return vfs_path_skip_sep(full);
+}
+
+static void vfs_walk_start(struct vfs_walk_data *data, const char *path)
+{
+	data->entry = vfs_entry_get(&fs_root_entry);
+	data->tail = vfs_path_next_entry(data->next, vfs_path_skip_sep(path));
+}
+
+static void vfs_walk_stop(struct vfs_walk_data *data)
+{
+	vfs_entry_put(data->entry);
+	memset(data, 0, sizeof(*data));
+}
+
+static int vfs_walk(struct vfs_walk_data *data)
+{
+	if (!strcmp(data->next, ""))
+		return -ENOENT;
+
+	if (!strcmp(data->next, ".")) {
+		data->tail = vfs_path_next_entry(data->next, data->tail);
+		return 0;
 	}
-}
 
-void vfs_entry_detach(struct fs_entry *entry)
-{
-	if (entry->node) {
-		vfs_node_put(entry->node);
-		entry->node = 0;
+	if (!strcmp(data->next, "..")) {
+		struct fs_entry *parent = vfs_entry_get(data->entry->parent);
+
+		vfs_entry_put(data->entry);
+		data->entry = parent;
+		data->tail = vfs_path_next_entry(data->next, data->tail);
+		return 0;
 	}
+
+	struct fs_entry *entry;
+	int rc;
+
+	mutex_lock(&data->entry->node->mux);
+	entry = vfs_lookup(data->entry, data->next, false, &rc);
+	mutex_unlock(&data->entry->node->mux);
+
+	if (!entry)
+		return rc;
+
+	vfs_entry_put(data->entry);
+	data->entry = entry;
+	data->tail = vfs_path_next_entry(data->next, data->tail);
+	return 0;
 }
 
-void vfs_entry_destroy(struct fs_entry *entry)
+static int vfs_walk_parent(struct vfs_walk_data *data)
 {
-	vfs_entry_evict(entry);
-	vfs_entry_detach(entry);
-	kmem_cache_free(fs_entry_cache, entry);
+	while (strcmp(data->tail, "")) {
+		const int rc = vfs_walk(data);
+
+		if (rc)
+			return rc;
+	}
+	return 0;
 }
 
+static int vfs_walk_all(struct vfs_walk_data *data)
+{
+	while (strcmp(data->next, "")) {
+		const int rc = vfs_walk(data);
+
+		if (rc)
+			return rc;
+	}
+	return 0;
+}
+
+static struct fs_entry *vfs_resolve_path(const char *path, int *rc)
+{
+	struct vfs_walk_data wd;
+
+	vfs_walk_start(&wd, path);
+	*rc = vfs_walk_all(&wd);
+	if (*rc) {
+		vfs_walk_stop(&wd);
+		return 0;
+	}
+
+	struct fs_entry *entry = vfs_entry_get(wd.entry);
+
+	vfs_walk_stop(&wd);
+	*rc = 0;
+	return entry;
+}
 
 static int vfs_root_lookup(struct fs_node *root, struct fs_entry *entry)
 {
@@ -148,51 +300,6 @@ static struct fs_file_ops fs_root_file_ops = {
 	.iterate = &vfs_root_iterate
 };
 
-static const char *vfs_path_skip_sep(const char *path)
-{
-	while (*path && *path == '/')
-		++path;
-	return path;
-}
-
-static const char *vfs_path_next_entry_name(char *next, const char *full)
-{
-	while (*full && *full != '/')
-		*next++ = *full++;
-	*next = '\0';
-	return vfs_path_skip_sep(full);
-}
-
-static struct fs_entry *vfs_resolve_name(const char *path, bool create, int *rc)
-{
-	struct fs_entry *entry = vfs_entry_get(&fs_root_entry);
-
-	path = vfs_path_skip_sep(path);
-	while (entry && *path) {
-		char name[MAX_PATH_LEN];
-		struct fs_entry *next;
-
-		path = vfs_path_next_entry_name(name, path);
-
-		if (!strcmp(name, "."))
-			continue;
-
-		if (!strcmp(name, "..")) {
-			if (entry->parent) {
-				next = vfs_entry_get(entry->parent);
-				vfs_entry_put(entry);
-				entry = next;
-			}
-			continue;
-		}
-
-		next = vfs_entry_lookup(entry, name, create && *path == 0, rc);
-		vfs_entry_put(entry);
-		entry = next;
-	}
-
-	return entry;
-}
 
 static void vfs_file_cleanup(struct fs_file *file)
 {
@@ -207,32 +314,38 @@ static void vfs_file_cleanup(struct fs_file *file)
 
 static int vfs_file_open(const char *name, struct fs_file *file, bool create)
 {
-	int rc = 0;
-	struct fs_entry *entry = vfs_resolve_name(name, create, &rc);
+	struct vfs_walk_data wd;
+	int rc;
 
-	if (!entry)
+	vfs_walk_start(&wd, name);
+	rc = vfs_walk_parent(&wd);
+	if (rc) {
+		vfs_walk_stop(&wd);
 		return rc;
+	}
 
-	if (create) {
-		struct fs_entry *parent = entry->parent;
-		struct fs_node *node = parent->node;
+	struct fs_node *dir = wd.entry->node;
+	struct fs_entry *entry;
 
-		if (entry->node) {
-			vfs_entry_put(entry);
-			return -EEXIST;
-		}
+	if (!dir->ops || !dir->ops->lookup) {
+		vfs_walk_stop(&wd);
+		return -ENOTSUP;
+	}
+	
+	mutex_lock(&dir->mux);
+	entry = vfs_lookup(wd.entry, wd.next, create, &rc);
+	if (create && entry && !entry->node) {
+		if (!dir->ops->create)
+			rc = -ENOTSUP;
+		else
+			rc = dir->ops->create(dir, entry);
+	}
+	mutex_unlock(&dir->mux);
+	vfs_walk_stop(&wd);
 
-		if (!node->ops || !node->ops->create) {
-			vfs_entry_put(entry);
-			return -ENOTSUP;
-		}
-
-		const int ret = node->ops->create(node, entry);
-
-		if (ret) {
-			vfs_entry_put(entry);
-			return ret;
-		}
+	if (rc) {
+		vfs_entry_put(entry);
+		return rc;
 	}
 
 	file->entry = entry;
@@ -357,34 +470,52 @@ int vfs_readdir(struct fs_file *file, struct dirent *entries, size_t count)
 
 int vfs_link(const char *oldname, const char *newname)
 {
-	int rc = 0;
-	struct fs_entry *oldentry = vfs_resolve_name(oldname, false, &rc);
+	int rc;
+	struct fs_entry *oldentry = vfs_resolve_path(oldname, &rc);
 
 	if (!oldentry)
 		return rc;
 
-	struct fs_entry *parent = oldentry->parent;
-	struct fs_node *dir = parent->node;
+	struct vfs_walk_data wd;
 
-	if (!dir->ops || !dir->ops->link) {
+	vfs_walk_start(&wd, newname);
+	rc = vfs_walk_parent(&wd);
+	if (rc) {
+		vfs_walk_stop(&wd);
+		vfs_entry_put(oldentry);
+		return rc;
+	}
+
+	struct fs_entry *dir = wd.entry;
+	struct fs_node *node = dir->node;
+
+	if (!node->ops || !node->ops->lookup || !node->ops->link) {
+		vfs_walk_stop(&wd);
 		vfs_entry_put(oldentry);
 		return -ENOTSUP;
 	}
-
-	struct fs_entry *newentry = vfs_resolve_name(newname, true, &rc);
+	
+	mutex_lock(&node->mux);
+	struct fs_entry *newentry = vfs_lookup(dir, wd.next, true, &rc);
 
 	if (!newentry) {
+		mutex_unlock(&node->mux);
+		vfs_walk_stop(&wd);
 		vfs_entry_put(oldentry);
 		return rc;
 	}
 
 	if (newentry->node) {
+		mutex_unlock(&node->mux);
+		vfs_walk_stop(&wd);
 		vfs_entry_put(oldentry);
 		vfs_entry_put(newentry);
 		return -EEXIST;
 	}
 
-	rc = dir->ops->link(oldentry, dir, newentry);
+	rc = node->ops->link(oldentry, node, newentry);
+	mutex_unlock(&node->mux);
+	vfs_walk_stop(&wd);
 	vfs_entry_put(oldentry);
 	vfs_entry_put(newentry);
 	return rc;
@@ -392,55 +523,74 @@ int vfs_link(const char *oldname, const char *newname)
 
 int vfs_unlink(const char *name)
 {
-	int rc = 0;
-	struct fs_entry *entry = vfs_resolve_name(name, false, &rc);
+	int rc;
+	struct fs_entry *entry = vfs_resolve_path(name, &rc);
 
 	if (!entry)
 		return rc;
 
-	struct fs_entry *parent = entry->parent;
-	struct fs_node *node = parent->node;
+	struct fs_entry *dir = entry->parent;
+	struct fs_node *node = dir->node;
 
 	if (!node->ops || !node->ops->unlink) {
 		vfs_entry_put(entry);
 		return -ENOTSUP;
 	}
 
+	mutex_lock(&node->mux);
 	rc = node->ops->unlink(node, entry);
+	mutex_unlock(&node->mux);
 	vfs_entry_put(entry);
 	return rc;
 }
 
 int vfs_mkdir(const char *name)
 {
-	int rc = 0;
-	struct fs_entry *entry = vfs_resolve_name(name, true, &rc);
+	struct vfs_walk_data wd;
+	int rc;
 
-	if (!entry)
+	vfs_walk_start(&wd, name);
+	rc = vfs_walk_parent(&wd);
+	if (rc) {
+		vfs_walk_stop(&wd);
 		return rc;
+	}
+
+	struct fs_entry *dir = wd.entry;
+	struct fs_node *node = dir->node;
+
+	if (!node->ops || !node->ops->lookup || !node->ops->mkdir) {
+		vfs_walk_stop(&wd);
+		return -ENOTSUP;
+	}
+
+	mutex_lock(&node->mux);
+	struct fs_entry *entry = vfs_lookup(dir, wd.next, true, &rc);
+
+	if (!entry) {
+		mutex_unlock(&node->mux);
+		vfs_walk_stop(&wd);
+		return rc;
+	}
 
 	if (entry->node) {
+		mutex_unlock(&node->mux);
+		vfs_walk_stop(&wd);
 		vfs_entry_put(entry);
 		return -EEXIST;
 	}
 
-	struct fs_entry *parent = entry->parent;
-	struct fs_node *node = parent->node;
-
-	if (!node->ops || !node->ops->mkdir) {
-		vfs_entry_put(entry);
-		return -ENOTSUP;
-	}
-
 	rc = node->ops->mkdir(node, entry);
+	mutex_unlock(&node->mux);
+	vfs_walk_stop(&wd);
 	vfs_entry_put(entry);
 	return rc;
 }
 
 int vfs_rmdir(const char *name)
 {
-	int rc = 0;
-	struct fs_entry *entry = vfs_resolve_name(name, false, &rc);
+	int rc;
+	struct fs_entry *entry = vfs_resolve_path(name, &rc);
 
 	if (!entry)
 		return rc;
@@ -453,27 +603,14 @@ int vfs_rmdir(const char *name)
 		return -ENOTSUP;
 	}
 
+	mutex_lock(&node->mux);
 	rc = node->ops->rmdir(node, entry);
+	mutex_unlock(&node->mux);
 	vfs_entry_put(entry);
 	return rc;
 }
 
-int register_filesystem(struct fs_type *type)
-{
-	list_add_tail(&type->link, &fs_types);
-	return 0;
-}
-
-int unregister_filesystem(struct fs_type *type)
-{
-	if (type->refcount)
-		return -EBUSY;
-	list_del(&type->link);
-	return 0;
-}
-
-
-static struct fs_type *vfs_lookup_filesystem(const char *name)
+static struct fs_type *__vfs_lookup_filesystem(const char *name)
 {
 	struct list_head *head = &fs_types;
 	struct list_head *ptr = head->next;
@@ -487,7 +624,7 @@ static struct fs_type *vfs_lookup_filesystem(const char *name)
 	return 0;
 }
 
-static struct fs_mount *vfs_lookup_mount(const char *name)
+static struct fs_mount *__vfs_lookup_mount(const char *name)
 {
 	struct list_head *head = &fs_mounts;
 	struct list_head *ptr = head->next;
@@ -501,7 +638,7 @@ static struct fs_mount *vfs_lookup_mount(const char *name)
 	return 0;
 }
 
-static struct fs_mount *vfs_mount_create(struct fs_type *fs, const char *name)
+static struct fs_mount *__vfs_mount_create(struct fs_type *fs, const char *name)
 {
 	struct fs_mount *mnt;
 
@@ -519,7 +656,7 @@ static struct fs_mount *vfs_mount_create(struct fs_type *fs, const char *name)
 	return mnt;
 }
 
-static void vfs_mount_destroy(struct fs_type *fs, struct fs_mount *mnt)
+static void __vfs_mount_destroy(struct fs_type *fs, struct fs_mount *mnt)
 {
 	if (fs->ops->free)
 		fs->ops->free(mnt);
@@ -527,18 +664,42 @@ static void vfs_mount_destroy(struct fs_type *fs, struct fs_mount *mnt)
 		kmem_free(mnt);
 }
 
-int vfs_mount(const char *fs_name, const char *mount, const void *data,
+int register_filesystem(struct fs_type *type)
+{
+	mutex_lock(&fs_root_node.mux);
+	if (__vfs_lookup_filesystem(type->name)) {
+		mutex_unlock(&fs_root_node.mux);
+		return -EEXIST;
+	}
+	list_add_tail(&type->link, &fs_types);
+	mutex_unlock(&fs_root_node.mux);
+	return 0;
+}
+
+int unregister_filesystem(struct fs_type *type)
+{
+	mutex_lock(&fs_root_node.mux);
+	if (type->refcount) {
+		mutex_unlock(&fs_root_node.mux);
+		return -EBUSY;
+	}
+	list_del(&type->link);
+	mutex_unlock(&fs_root_node.mux);
+	return 0;
+}
+
+static int __vfs_mount(const char *fs_name, const char *mount, const void *data,
 			size_t size)
 {
-	struct fs_type *fs = vfs_lookup_filesystem(fs_name);
+	struct fs_type *fs = __vfs_lookup_filesystem(fs_name);
 
 	if (!fs)
 		return -ENOENT;
 
-	if (vfs_lookup_mount(mount))
+	if (__vfs_lookup_mount(mount))
 		return -EEXIST;
 
-	struct fs_mount *mnt = vfs_mount_create(fs, mount);
+	struct fs_mount *mnt = __vfs_mount_create(fs, mount);
 
 	if (!mnt)
 		return -ENOMEM;
@@ -546,7 +707,7 @@ int vfs_mount(const char *fs_name, const char *mount, const void *data,
 	const int ret = fs->ops->mount(mnt, data, size);
 
 	if (ret) {
-		vfs_mount_destroy(mnt->fs, mnt);
+		__vfs_mount_destroy(mnt->fs, mnt);
 		return ret;
 	}
 
@@ -555,9 +716,18 @@ int vfs_mount(const char *fs_name, const char *mount, const void *data,
 	return ret;
 }
 
-int vfs_umount(const char *mount)
+int vfs_mount(const char *fs_name, const char *mount, const void *data,
+			size_t size)
 {
-	struct fs_mount *mnt = vfs_lookup_mount(mount);
+	mutex_lock(&fs_root_node.mux);
+	const int rc = __vfs_mount(fs_name, mount, data, size);
+	mutex_unlock(&fs_root_node.mux);
+	return rc;
+}
+
+static int __vfs_umount(const char *mount)
+{
+	struct fs_mount *mnt = __vfs_lookup_mount(mount);
 
 	if (!mnt)
 		return -ENOENT;
@@ -565,16 +735,27 @@ int vfs_umount(const char *mount)
 	list_del(&mnt->link);
 	mnt->fs->ops->umount(mnt);
 	--mnt->fs->refcount;
-	vfs_mount_destroy(mnt->fs, mnt);
+	__vfs_mount_destroy(mnt->fs, mnt);
 	return 0;
+}
+
+int vfs_umount(const char *mount)
+{
+	mutex_lock(&fs_root_node.mux);
+	const int rc = __vfs_umount(mount);
+	mutex_unlock(&fs_root_node.mux);
+	return rc;	
 }
 
 void setup_vfs(void)
 {
 	fs_entry_cache = KMEM_CACHE(struct fs_entry);
 
-	fs_root_entry.node = &fs_root_node;
-	fs_root_entry.refcount = 1;
+	mutex_init(&fs_root_node.mux);
 	fs_root_node.ops = &fs_root_node_ops;
 	fs_root_node.fops = &fs_root_file_ops;
+
+	fs_root_entry.node = &fs_root_node;
+	fs_root_entry.parent = &fs_root_entry;
+	fs_root_entry.refcount = 1;
 }

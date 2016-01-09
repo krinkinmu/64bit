@@ -1,8 +1,10 @@
 #ifndef __VFS_H__
 #define __VFS_H__
 
+#include <stdbool.h>
 #include <stddef.h>
 
+#include "locking.h"
 #include "rbtree.h"
 #include "stdio.h"
 #include "list.h"
@@ -15,16 +17,7 @@ struct fs_node;
 struct fs_file;
 struct dir_iter_ctx;
 
-/**
- * alloc - allocates filesystem specific fs_mount [optional]
- * free - frees filesystem specific fs_mount [optional]
- * mount - takes fs_mount and mount arguments, and mount
- *         filesystem (or failes), e. g. reads superblock
- *         from disk, makes sanity checks, creates caches
- *         and so on.
- * umount - unmount filesystem. e. g. releases memory, flushes
- *          caches and so on.
- */
+
 struct fs_type_ops {
 	struct fs_mount *(*alloc)(void);
 	void (*free)(struct fs_mount *);
@@ -32,21 +25,6 @@ struct fs_type_ops {
 	void (*umount)(struct fs_mount *);
 };
 
-/**
- * create - creates a file
- * link - create hard link to the file specified by first
- *        fs_entry in the directory specified by fs_node
- *        with name specified by last fs_entry
- * unlink - deletes hard link to the file specified by
- *          fs_entry in the directory specified by fs_node.
- * remove - removes a file (we don't support hard links, so
- *          just remove)
- * mkdir - creates a directory
- * rmdir - removes a directory
- * lookup - lookups entry with a name specified by fs_entry
- *          in a directory specified by fs_node, and binds
- *          fs_node to fs_entry if successful.
- */
 struct fs_node_ops {
 	int (*create)(struct fs_node *, struct fs_entry *);
 	int (*link)(struct fs_entry *, struct fs_node *, struct fs_entry *);
@@ -57,13 +35,6 @@ struct fs_node_ops {
 	void (*release)(struct fs_node *);
 };
 
-/**
- * open - called when file description created
- * release - called when last reference to fs_file released
- * read - reads data from the file to the specified buffer
- * writes - writed data to the file from the specified buffer
- * iterate - readdir but with little bit tricky interface.
- */
 enum fs_seek_base {
 	FSS_SET,
 	FSS_CUR,
@@ -104,26 +75,67 @@ struct fs_mount {
  * filesystem entity (file, directory, etc..) there is an fs_node
  */
 struct fs_node {
+	struct mutex mux; // protects against concurrent dir ops
 	struct fs_node_ops *ops;
 	struct fs_file_ops *fops;
-	int size;
+	struct spinlock lock; // protects size and refcount access
 	int refcount;
+	int size;
 };
+
+void vfs_node_destroy(struct fs_node *node);
+
+static inline void vfs_node_init(struct fs_node *node)
+{
+	mutex_init(&node->mux);
+	spinlock_init(&node->lock);
+	node->refcount = 1;
+}
+
+static inline struct fs_node *vfs_node_get(struct fs_node *node)
+{
+	if (node) {
+		const bool enabled = spin_lock_irqsave(&node->lock);
+		++node->refcount;
+		spin_unlock_irqrestore(&node->lock, enabled);
+	}
+	return node;
+}
+
+static inline void vfs_node_put(struct fs_node *node)
+{
+	if (!node)
+		return;
+
+	const bool enabled = spin_lock_irqsave(&node->lock);
+	const int refcount = --node->refcount;
+	spin_unlock_irqrestore(&node->lock, enabled);
+
+	if (!refcount)
+		vfs_node_destroy(node);
+}
 
 /**
  * struct fs_entry represents chunk of file path, for example for
  * a path /usr/bin/python there might be three fs_entry structures:
  * usr, bin and python. So fs_entry structures reperesents a tree
- * of dirs (somehow... i don't know how to track children so far).
+ * of dirs.
  */
 struct fs_entry {
-	struct rb_node link;
-	struct rb_tree children;
+	struct rb_node link; // protected by parent->node->mux
+	struct rb_tree children; // protected by node->mux
 	struct fs_entry *parent;
 	struct fs_node *node;
-	int refcount;
 	char name[MAX_PATH_LEN];
+	bool cached; // protected by parent->node->mux
+	struct spinlock lock; // protects refcount access
+	int refcount;
 };
+
+void vfs_entry_detach(struct fs_entry *entry);
+struct fs_entry *vfs_entry_get(struct fs_entry *entry);
+void vfs_entry_put(struct fs_entry *entry);
+
 
 /**
  * struct fs_file is so called file description
@@ -163,47 +175,11 @@ int vfs_unlink(const char *name);
 int vfs_mkdir(const char *name);
 int vfs_rmdir(const char *name);
 
-void vfs_entry_destroy(struct fs_entry *entry);
-void vfs_entry_evict(struct fs_entry *entry);
-void vfs_entry_detach(struct fs_entry *entry);
-struct fs_entry *vfs_entry_create(const char *name);
-
-static inline struct fs_node *vfs_node_get(struct fs_node *node)
-{
-	++node->refcount;
-	return node;
-}
-
-static inline void vfs_node_put(struct fs_node *node)
-{
-	if (--node->refcount == 0) {
-		DBG_INFO("Destroy fs_node");
-		node->ops->release(node);
-	}
-}
-
-static inline struct fs_entry *vfs_entry_get(struct fs_entry *entry)
-{
-	++entry->refcount;
-	return entry;
-}
-
-static inline void vfs_entry_put(struct fs_entry *entry)
-{
-	if (--entry->refcount == 0) {
-		DBG_INFO("Destroy fs_entry %s", entry->name);
-		vfs_entry_destroy(entry);
-	}
-}
-
-
 int register_filesystem(struct fs_type *type);
 int unregister_filesystem(struct fs_type *type);
-
 int vfs_mount(const char *fs_name, const char *mount, const void *data,
 			size_t size);
 int vfs_umount(const char *mount);
-
 void setup_vfs(void);
 
 #endif /*__VFS_H__*/
