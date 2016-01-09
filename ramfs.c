@@ -118,8 +118,8 @@ static int ramfs_entry_unlink(struct ramfs_node *dir, struct fs_entry *entry)
 	rb_erase(&iter.entry->link, &dir->children);
 	--VFS_NODE(dir)->size;
 	ramfs_entry_destroy(iter.entry);
-	vfs_node_put(entry->node);
-	entry->node = 0;
+	vfs_entry_evict(entry);
+	vfs_entry_detach(entry);
 	return 0;
 }
 
