@@ -78,7 +78,7 @@ struct fs_node {
 	struct mutex mux; // protects against concurrent dir ops
 	struct fs_node_ops *ops;
 	struct fs_file_ops *fops;
-	struct spinlock lock; // protects size and refcount access
+	struct spinlock lock; // protects refcount access, and probably size
 	int refcount;
 	int size;
 };

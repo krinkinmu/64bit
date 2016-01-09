@@ -102,8 +102,12 @@ static bool ramfs_entry_lookup(struct ramfs_node *dir, const char *name,
 static void ramfs_entry_link(struct ramfs_node *dir, struct ramfs_entry *entry,
 			struct ramfs_dir_iterator *iter)
 {
-	vfs_node_get(VFS_NODE(dir));
+	const bool enabled = spin_lock_irqsave(&VFS_NODE(dir)->lock);
+
+	++VFS_NODE(dir)->refcount;
 	++VFS_NODE(dir)->size;
+	spin_unlock_irqrestore(&VFS_NODE(dir)->lock, enabled);
+
 	rb_link(&entry->link, iter->parent, iter->plink);
 	rb_insert(&entry->link, &dir->children);
 }
@@ -116,7 +120,11 @@ static int ramfs_entry_unlink(struct ramfs_node *dir, struct fs_entry *entry)
 		return -ENOENT;
 
 	rb_erase(&iter.entry->link, &dir->children);
+
+	const bool enabled = spin_lock_irqsave(&VFS_NODE(dir)->lock);
 	--VFS_NODE(dir)->size;
+	spin_unlock_irqrestore(&VFS_NODE(dir)->lock, enabled);
+
 	ramfs_entry_destroy(iter.entry);
 	vfs_entry_detach(entry);
 	return 0;
@@ -274,9 +282,12 @@ static struct fs_node_ops ramfs_dir_node_ops = {
 
 static int ramfs_write(struct fs_file *file, const char *data, size_t size)
 {
-	struct ramfs_node *node = RAMFS_NODE(file->node);
+	struct fs_node *fs_node = file->node;
+	struct ramfs_node *node = RAMFS_NODE(fs_node);
 	struct list_head *head = &node->pages;
 	struct list_head *ptr = head;
+
+	const bool enabled = spin_lock_irqsave(&fs_node->lock);
 
 	const size_t idx = file->offset >> PAGE_BITS;
 	const size_t off = file->offset & PAGE_MASK;
@@ -286,8 +297,10 @@ static int ramfs_write(struct fs_file *file, const char *data, size_t size)
 		if (ptr->next == head) {
 			struct page *page = alloc_pages(0, NT_HIGH);
 
-			if (!page)
+			if (!page) {
+				spin_unlock_irqrestore(&fs_node->lock, enabled);
 				return -ENOMEM;
+			}
 
 			list_add(&page->link, ptr);
 		}
@@ -297,25 +310,33 @@ static int ramfs_write(struct fs_file *file, const char *data, size_t size)
 	struct page *page = LIST_ENTRY(ptr, struct page, link);
 	char *vaddr = kmap(page, 1);
 
-	if (!vaddr)
+	if (!vaddr) {
+		spin_unlock_irqrestore(&fs_node->lock, enabled);
 		return -ENOMEM;
+	}
 
 	memcpy(vaddr + off, data, sz);
 	kunmap(vaddr);
 	file->offset += sz;
 	file->node->size = MAX(file->offset, file->node->size);
+	spin_unlock_irqrestore(&fs_node->lock, enabled);
 
 	return (int)sz;
 }
 
 static int ramfs_read(struct fs_file *file, char *data, size_t size)
 {
-	struct ramfs_node *node = RAMFS_NODE(file->node);
+	struct fs_node *fs_node = file->node;
+	struct ramfs_node *node = RAMFS_NODE(fs_node);
 	struct list_head *head = &node->pages;
 	struct list_head *ptr = head;
 
-	if (file->offset >= file->node->size)
+	const bool enabled = spin_lock_irqsave(&fs_node->lock);
+
+	if (file->offset >= file->node->size) {
+		spin_unlock_irqrestore(&fs_node->lock, enabled);
 		return 0;
+	}
 
 	const size_t rem = file->node->size - file->offset;
 	const size_t idx = file->offset >> PAGE_BITS;
@@ -323,20 +344,25 @@ static int ramfs_read(struct fs_file *file, char *data, size_t size)
 	const size_t sz = MINU(MINU(PAGE_SIZE - off, size), rem);
 
 	for (size_t i = 0; i <= idx; ++i) {
-		if (ptr->next == head)
+		if (ptr->next == head) {
+			spin_unlock_irqrestore(&fs_node->lock, enabled);
 			return 0;
+		}
 		ptr = ptr->next;
 	}
 
 	struct page *page = LIST_ENTRY(ptr, struct page, link);
 	char *vaddr = kmap(page, 1);
 
-	if (!vaddr)
+	if (!vaddr) {
+		spin_unlock_irqrestore(&fs_node->lock, enabled);
 		return -ENOMEM;
+	}
 
 	memcpy(data, vaddr + off, sz);
 	kunmap(vaddr);
 	file->offset += sz;
+	spin_unlock_irqrestore(&fs_node->lock, enabled);
 
 	return (int)sz;	
 }
