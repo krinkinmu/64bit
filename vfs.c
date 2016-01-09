@@ -93,7 +93,7 @@ static struct fs_entry *vfs_lookup(struct fs_entry *dir, const char *name,
 	struct rb_node **plink = &dir->children.root;
 	struct rb_node *parent = 0;
 
-	if (!node->ops || !node->ops->lookup) {
+	if (!node->ops->lookup) {
 		*rc = -ENOTSUP;
 		return 0;
 	}
@@ -489,7 +489,7 @@ int vfs_link(const char *oldname, const char *newname)
 	struct fs_entry *dir = wd.entry;
 	struct fs_node *node = dir->node;
 
-	if (!node->ops || !node->ops->lookup || !node->ops->link) {
+	if (!node->ops->lookup || !node->ops->link) {
 		vfs_walk_stop(&wd);
 		vfs_entry_put(oldentry);
 		return -ENOTSUP;
@@ -532,7 +532,7 @@ int vfs_unlink(const char *name)
 	struct fs_entry *dir = entry->parent;
 	struct fs_node *node = dir->node;
 
-	if (!node->ops || !node->ops->unlink) {
+	if (!node->ops->unlink) {
 		vfs_entry_put(entry);
 		return -ENOTSUP;
 	}
@@ -559,7 +559,7 @@ int vfs_mkdir(const char *name)
 	struct fs_entry *dir = wd.entry;
 	struct fs_node *node = dir->node;
 
-	if (!node->ops || !node->ops->lookup || !node->ops->mkdir) {
+	if (!node->ops->lookup || !node->ops->mkdir) {
 		vfs_walk_stop(&wd);
 		return -ENOTSUP;
 	}
@@ -598,7 +598,7 @@ int vfs_rmdir(const char *name)
 	struct fs_entry *parent = entry->parent;
 	struct fs_node *node = parent->node;
 
-	if (!node->ops || !node->ops->rmdir) {
+	if (!node->ops->rmdir) {
 		vfs_entry_put(entry);
 		return -ENOTSUP;
 	}
