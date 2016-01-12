@@ -98,8 +98,11 @@ void destroy_thread(struct thread *thread)
 
 void activate_thread(struct thread *thread)
 {
+	const bool enabled = local_preempt_save();
+
 	thread->state = THREAD_ACTIVE;
 	scheduler->activate(thread);
+	local_preempt_restore(enabled);
 }
 
 void block_thread(void)
