@@ -71,24 +71,20 @@ void wait_queue_notify_all(struct wait_queue *queue);
 	do { 								\
 		struct wait_queue *__WAIT_EVENT_wq = (wq);		\
 		struct wait_head __WAIT_EVENT_wh;			\
-		bool __WAIT_EVENT_enabled;				\
 									\
 		__WAIT_EVENT_wh.thread = current();			\
-		__WAIT_EVENT_enabled =					\
-			spin_lock_irqsave(&__WAIT_EVENT_wq->lock);	\
+		spin_lock(&__WAIT_EVENT_wq->lock);			\
 									\
 		while (!(cond)) {					\
 			__WAIT_EVENT_wh.thread->state = THREAD_BLOCKED;	\
 			list_add_tail(&__WAIT_EVENT_wh.link,		\
 				&__WAIT_EVENT_wq->threads);		\
-			spin_unlock_irqrestore(&__WAIT_EVENT_wq->lock,	\
-				__WAIT_EVENT_enabled);			\
+			spin_unlock(&__WAIT_EVENT_wq->lock);		\
 			schedule();					\
 			spin_lock(&__WAIT_EVENT_wq->lock);		\
 		}							\
 									\
-		spin_unlock_irqrestore(&__WAIT_EVENT_wq->lock,		\
-			__WAIT_EVENT_enabled);				\
+		spin_unlock(&__WAIT_EVENT_wq->lock);			\
 	} while (0);
 
 
@@ -114,5 +110,25 @@ static inline void mutex_init(struct mutex *mutex)
 
 void mutex_lock(struct mutex *mutex);
 void mutex_unlock(struct mutex *mutex);
+
+
+struct condition {
+	struct wait_queue wq;
+};
+
+#define CONDITION_INIT(name) {	\
+	WAIT_QUEUE_INIT((name).wq)	\
+}
+
+#define DEFINE_CONDITION(name) struct condition name = CONDITION_INIT(name)
+
+static inline void condition_init(struct condition *condition)
+{
+	wait_queue_init(&condition->wq);
+}
+
+void condition_wait(struct mutex *mutex, struct condition *condition);
+void condition_notify(struct condition *condition);
+void condition_notify_all(struct condition *condition);
 
 #endif /*__LOCKING_H__*/

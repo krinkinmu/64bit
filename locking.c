@@ -59,3 +59,28 @@ void mutex_unlock(struct mutex *mutex)
 	__wait_queue_notify(&mutex->wq);
 	spin_unlock_irqrestore(&mutex->wq.lock, enabled);
 }
+
+
+void condition_wait(struct mutex *mutex, struct condition *condition)
+{
+	struct thread *self = current();
+	struct wait_head wh;
+
+	wh.thread = self;
+
+	spin_lock(&condition->wq.lock);
+	self->state = THREAD_BLOCKED;
+	list_add_tail(&wh.link, &condition->wq.threads);
+	mutex_unlock(mutex);
+	spin_unlock(&condition->wq.lock);
+
+	schedule();
+
+	mutex_lock(mutex);
+}
+
+void condition_notify(struct condition *condition)
+{ wait_queue_notify(&condition->wq); }
+
+void condition_notify_all(struct condition *condition)
+{ wait_queue_notify_all(&condition->wq); }
