@@ -103,14 +103,21 @@ int snprintf(char *buf, size_t size, const char *fmt, ...)
 	return ret;
 }
 
+#include "threads.h"
+
 void dbg_printf(const char *pref, const char *file, int line,
 			const char *fmt, ...)
 {
+	static int cnt;
 	va_list args;
 
+	const bool enabled = local_preempt_save();
+
 	va_start(args, fmt);
-	printf("[%s] %s:%d ", pref, file, line);
+	printf("[%s:%d] %s:%d ", pref, cnt++, file, line);
 	vprintf(fmt, args);
 	putchar('\n');
 	va_end(args);
+
+	local_preempt_restore(enabled);
 }
