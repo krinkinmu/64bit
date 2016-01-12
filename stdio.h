@@ -39,4 +39,14 @@ void dbg_printf(const char *pref, const char *file, int line,
 #define DBG_ERR(...) do {} while (0)
 #endif
 
+#define DBG_TRACE_ENTER DBG_INFO("Enter %s", __func__)
+#define DBG_TRACE_LEAVE DBG_INFO("Leave %s", __func__)
+#define DBG_ASSERT(cond)					\
+	do {							\
+		if (!(cond)) {					\
+			DBG_ERR("Condition %s failed", #cond);	\
+			while (1);				\
+		}						\
+	} while (0)
+
 #endif /*__STDIO_H__*/
