@@ -1,5 +1,6 @@
 #include "threads.h"
 #include "string.h"
+#include "stdio.h"
 #include "time.h"
 
 struct switch_stack_frame {
@@ -125,6 +126,7 @@ void finish_thread(void)
 	local_preempt_disable();
 	current_thread->state = THREAD_FINISHED;
 	schedule();
+	DBG_ASSERT(0 && "Unreachable");
 }
 
 struct thread *current(void)
@@ -166,7 +168,11 @@ void schedule(void)
 }
 
 bool need_resched(void)
-{ return scheduler->need_preempt(current_thread); }
+{
+	if (current_thread == &bootstrap)
+		return true;
+	return scheduler->need_preempt(current_thread);
+}
 
 void setup_threading(void)
 {
