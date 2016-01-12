@@ -21,6 +21,8 @@
 #define BITS_CONST(hi, lo)     ((BIT_CONST((hi) + 1) - 1) & (ALL_BITS << (lo)))
 #define BITS(hi, lo)           BITS_CONST(hi, lo)
 
+#define barrier()              __asm__ volatile ("" : : : "memory")
+
 static inline uintmax_t ALIGN_DOWN(uintmax_t x, uintmax_t a)
 { return ALIGN_DOWN_CONST(x, a); }
 
