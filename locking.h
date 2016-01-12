@@ -2,6 +2,8 @@
 #define __LOCKING_H__
 
 #include "threads.h"
+#include "kernel.h"
+#include "stdio.h"
 #include "list.h"
 
 struct spinlock { void *padding; };
@@ -17,12 +19,14 @@ static inline void spin_lock(struct spinlock *lock)
 	(void) lock;
 
 	local_preempt_disable();
+	barrier();
 }
 
 static inline void spin_unlock(struct spinlock *lock)
 {
 	(void) lock;
 
+	barrier();
 	local_preempt_enable();
 }
 
@@ -30,13 +34,17 @@ static inline bool spin_lock_irqsave(struct spinlock *lock)
 {
 	(void) lock;
 
-	return local_preempt_save();
+	const bool enabled = local_preempt_save();
+
+	barrier();
+	return enabled;
 }
 
 static inline void spin_unlock_irqrestore(struct spinlock *lock, bool enabled)
 {
 	(void) lock;
 
+	barrier();
 	local_preempt_restore(enabled);
 }
 
@@ -69,6 +77,7 @@ void wait_queue_notify_all(struct wait_queue *queue);
 
 #define WAIT_EVENT(wq, cond) \
 	do { 								\
+		DBG_ASSERT(local_preempt_enabled());			\
 		struct wait_queue *__WAIT_EVENT_wq = (wq);		\
 		struct wait_head __WAIT_EVENT_wh;			\
 									\
