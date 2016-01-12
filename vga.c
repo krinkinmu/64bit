@@ -9,7 +9,7 @@ static const char CATTR = 7;
 
 static int row, col;
 
-static void newline(void)
+static void vga_newline(void)
 {
 	char * const ptr = VGAMEM + 2 * row * COLS;
 
@@ -19,7 +19,7 @@ static void newline(void)
 	}
 }
 
-static void putchar(int c)
+static void vga_putchar(int c)
 {
 	static const int TAB_WIDTH = 8;
 
@@ -34,13 +34,13 @@ static void putchar(int c)
 			return;
 	case '\n':
 		row = (row + 1) % ROWS;
-		newline();
+		vga_newline();
 	case '\r':
 		col = 0;
 		break;
 	case '\t':
 		for (int i = 0; i != TAB_WIDTH; ++i)
-			putchar(' ');
+			vga_putchar(' ');
 		break;
 	}
 }
@@ -53,17 +53,17 @@ static void clrscr(void)
 	}
 }
 
-static void write(const char *str, unsigned long size)
+static void vga_write(const char *str, unsigned long size)
 {
 	for (unsigned long i = 0; i != size; ++i)
-		putchar(str[i]);
+		vga_putchar(str[i]);
 }
 
 void setup_vga(void)
 {
 	static struct console vga_console;
 
-	vga_console.write = &write;
+	vga_console.write = &vga_write;
 	clrscr();
 	register_console(&vga_console);
 }
