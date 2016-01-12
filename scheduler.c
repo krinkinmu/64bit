@@ -1,5 +1,6 @@
 #include "kmem_cache.h"
 #include "threads.h"
+#include "stdio.h"
 #include "time.h"
 #include "list.h"
 
@@ -21,7 +22,6 @@ static struct thread *THREAD(struct rr_thread *thread)
 
 static struct kmem_cache *rr_thread_cache;
 static LIST_HEAD(rr_active_list);
-static LIST_HEAD(rr_blocked_list);
 
 
 static struct thread *rr_alloc_thread(void)
@@ -47,6 +47,8 @@ static bool rr_need_preempt(struct thread *thread)
 
 static struct thread *rr_next_thread(void)
 {
+	DBG_ASSERT(local_preempt_disabled());
+
 	if (list_empty(&rr_active_list))
 		return 0;
 
@@ -54,27 +56,23 @@ static struct thread *rr_next_thread(void)
 	struct rr_thread *thread = LIST_ENTRY(link, struct rr_thread, link);
 
 	list_del(&thread->link);
-
 	return THREAD(thread);
 }
 
 static void rr_activate_thread(struct thread *thread)
-{ list_add_tail(&RR_THREAD(thread)->link, &rr_active_list); }
+{
+	DBG_ASSERT(local_preempt_disabled());
+	DBG_ASSERT(thread->state == THREAD_ACTIVE);
+
+	list_add_tail(&RR_THREAD(thread)->link, &rr_active_list);
+}
 
 static void rr_preempt_thread(struct thread *thread)
 {
-	struct rr_thread *rr_thread = RR_THREAD(thread);
+	DBG_ASSERT(local_preempt_disabled());
 
-	switch (thread->state) {
-	case THREAD_ACTIVE:
-		list_add_tail(&rr_thread->link, &rr_active_list);
-		break;
-	case THREAD_BLOCKED:
-		list_add_tail(&rr_thread->link, &rr_blocked_list);
-		break;
-	default:
-		break;
-	}
+	if (thread->state == THREAD_ACTIVE)
+		list_add_tail(&RR_THREAD(thread)->link, &rr_active_list);
 }
 
 
