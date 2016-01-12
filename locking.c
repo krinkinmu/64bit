@@ -49,7 +49,9 @@ static bool __mutex_try_lock(struct mutex *mutex)
 }
 
 void mutex_lock(struct mutex *mutex)
-{ WAIT_EVENT(&mutex->wq, __mutex_try_lock(mutex)); }
+{
+	WAIT_EVENT(&mutex->wq, __mutex_try_lock(mutex));
+}
 
 void mutex_unlock(struct mutex *mutex)
 {
@@ -59,7 +61,6 @@ void mutex_unlock(struct mutex *mutex)
 	__wait_queue_notify(&mutex->wq);
 	spin_unlock_irqrestore(&mutex->wq.lock, enabled);
 }
-
 
 void condition_wait(struct mutex *mutex, struct condition *condition)
 {
@@ -80,7 +81,11 @@ void condition_wait(struct mutex *mutex, struct condition *condition)
 }
 
 void condition_notify(struct condition *condition)
-{ wait_queue_notify(&condition->wq); }
+{
+	wait_queue_notify(&condition->wq);
+}
 
 void condition_notify_all(struct condition *condition)
-{ wait_queue_notify_all(&condition->wq); }
+{
+	wait_queue_notify_all(&condition->wq);
+}

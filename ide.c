@@ -277,9 +277,8 @@ void bio_submit(struct bio *bio)
 void bio_wait(struct bio *bio)
 {
 	mutex_lock(&bio->mutex);
-	while (bio->status == BIO_NONE) {
+	while (bio->status == BIO_NONE)
 		condition_wait(&bio->mutex, &bio->cond);
-	}
 	mutex_unlock(&bio->mutex);
 }
 
