@@ -5,13 +5,20 @@
 #include <stddef.h>
 
 #include "interrupt.h"
+#include "kernel.h"
 
 
 static inline void local_preempt_disable(void)
-{ local_irq_disable(); }
+{
+	local_irq_disable();
+	barrier();
+}
 
 static inline void local_preempt_enable(void)
-{ local_irq_enable(); }
+{
+	barrier();
+	local_irq_enable();
+}
 
 static inline bool local_preempt_enabled(void)
 { return local_irq_enabled(); }

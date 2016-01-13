@@ -52,16 +52,6 @@ static void test_ide(void)
 	bio_free(bio);
 }
 
-static void start(void *data)
-{
-	(void) data;
-
-	setup_vfs();
-	setup_ramfs();
-	setup_ide();
-	test_ide();
-}
-
 void main(void)
 {
 	setup_vga();
@@ -73,11 +63,12 @@ void main(void)
 	setup_time();
 	setup_threading();
 
-	static unsigned long stack[512];
-	struct thread *st = create_thread(&start, 0, stack, sizeof(stack));
-	activate_thread(st);
+	local_preempt_enable();
 
-	local_irq_enable();
+	setup_vfs();
+	setup_ramfs();
+	setup_ide();
+	test_ide();
 
 	idle();
 }
