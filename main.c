@@ -10,46 +10,13 @@
 #include "vga.h"
 #include "vfs.h"
 
-static int check_all_zero(const char *data, size_t size)
+static void start(void *dummy)
 {
-	for (size_t i = 0; i != size; ++i)
-		if (data[i])
-			return 0;
-	return 1;
-}
+	(void) dummy;
 
-static void test_ide(void)
-{
-	struct page *page = alloc_pages(0, NT_LOW);
-	struct bio *bio = bio_alloc();
-
-	bio->dir = BIO_READ;
-	bio->map.page = page;
-	bio->map.sector = 0;
-	bio->map.offset = 0;
-	bio->map.length = PAGE_SIZE;
-
-	DBG_INFO("Submit bio");
-	bio_submit(bio);
-	DBG_INFO("Wait bio");
-	bio_wait(bio);
-
-	if (bio->status == BIO_FINISHED) {
-		DBG_INFO("read from the 0 sector finished");
-		const pfn_t pfn = page2pfn(page);
-		DBG_INFO("page pfn %lu", pfn);
-		const char *data = kernel_virt(pfn << PAGE_BITS);
-		DBG_INFO("page vaddr %lx", (unsigned long)data);
-
-		if (check_all_zero(data, PAGE_SIZE))
-			DBG_INFO("read zero-initialized data");
-		else
-			DBG_ERR("data isn't zero initialized");
-	} else {
-		DBG_ERR("read from the 0 sector failed");
-	}
-
-	bio_free(bio);
+	setup_vfs();
+	setup_ramfs();
+	setup_ide();
 }
 
 void main(void)
@@ -63,12 +30,11 @@ void main(void)
 	setup_time();
 	setup_threading();
 
-	local_preempt_enable();
-
-	setup_vfs();
-	setup_ramfs();
-	setup_ide();
-	test_ide();
+	struct page *stack = alloc_pages(1, NT_LOW);
+	void *vaddr = kernel_virt(page2pfn(stack) << PAGE_BITS);
+	struct thread *start_thread = create_thread(&start, 0, vaddr,
+					2 * PAGE_SIZE);
+	activate_thread(start_thread);
 
 	idle();
 }
