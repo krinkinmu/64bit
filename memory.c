@@ -190,8 +190,12 @@ void setup_memory(void)
 	extern char text_virt_begin[];
 	extern char bss_virt_end[];
 
-	balloc_reserve_region((phys_t)kernel_phys(text_virt_begin),
-				(size_t)(bss_virt_end - text_virt_begin));
+	const phys_t kernel_begin = (phys_t)kernel_phys(text_virt_begin);
+	const phys_t kernel_end = (phys_t)kernel_phys(bss_virt_end);
+	printf("reserve memory range: %#llx-%#llx for kernel\n",
+			(unsigned long long) kernel_begin,
+			(unsigned long long) kernel_end - 1);
+	balloc_reserve_region(kernel_begin, kernel_end - kernel_begin);
 }
 
 void setup_buddy(void)
