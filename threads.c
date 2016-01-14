@@ -101,24 +101,20 @@ void activate_thread(struct thread *thread)
 {
 	const bool enabled = local_preempt_save();
 
+	DBG_ASSERT(thread->state != THREAD_ACTIVE);
+	DBG_ASSERT(thread != &bootstrap);
+
 	thread->state = THREAD_ACTIVE;
 	scheduler->activate(thread);
 	local_preempt_restore(enabled);
 }
 
-void block_thread(void)
-{
-	const bool enabled = local_preempt_save();
-
-	current_thread->state = THREAD_BLOCKED;
-	schedule();
-	local_preempt_restore(enabled);
-}
-
 void wait_thread(struct thread *thread)
 {
-	while (thread->state != THREAD_DEAD)
+	while (thread->state != THREAD_DEAD) {
+		barrier();
 		schedule();
+	}
 }
 
 void finish_thread(void)
