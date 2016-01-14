@@ -90,6 +90,7 @@ static struct bio *dequeue_bio(void)
 		bio = LIST_ENTRY(head, struct bio, link);
 	}
 	mutex_unlock(&ide_bio_queue_mutex);
+
 	return bio;
 }
 
@@ -290,4 +291,10 @@ void setup_ide(void)
 	struct thread *thread = create_thread(&process_bio_queue,
 				0, stack, sizeof(stack));
 	activate_thread(thread);
+
+#ifdef CONFIG_IDE_TEST
+	void ide_test(void);
+
+	ide_test();
+#endif /* CONFIG_IDE_TEST */
 }
