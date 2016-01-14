@@ -23,10 +23,20 @@
 #define VIRTUAL_BASE      0xffffffff80000000ul
 #define PHYSICAL_BASE     0x0000000000000000ul
 #define MAX_PHYS_SIZE     BIT_CONST(36)       // max 0.5GB of page structs
-#define KERNEL_SIZE       (3 * BIT_CONST(29)) // 1.5GB - kernel memory model
-#define KERNEL_PAGES      (KERNEL_SIZE / PAGE_SIZE)
 
-#define KMAP_SIZE         BIT_CONST(29)       // 0.5GB - temporary map area
+#ifdef CONFIG_KERNEL_SIZE
+#define KERNEL_SIZE CONFIG_KERNEL_SIZE
+#else
+#define KERNEL_SIZE 3 * 512 * 1024 * 1024
+#endif
+
+#ifdef CONFIG_KMAP_SIZE
+#define KMAP_SIZE CONFIG_KMAP_SIZE
+#else
+#define KMAP_SIZE 512 * 1024 * 1024
+#endif
+
+#define KERNEL_PAGES      (KERNEL_SIZE / PAGE_SIZE)
 #define KMAP_PAGES        (KMAP_SIZE / PAGE_SIZE)
 
 #define KERNEL_CS         0x18
