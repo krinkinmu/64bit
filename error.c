@@ -9,6 +9,7 @@ static const char *err_str[] = {
 	"Resource is busy",
 	"File or directory already exists",
 	"Invalid value",
+	"IO error",
 	"Unknown error"
 };
 

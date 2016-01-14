@@ -7,6 +7,7 @@
 #define EBUSY   4
 #define EEXIST  5
 #define EINVAL  6
+#define EIO     7
 
 const char *errstr(int errc);
 
