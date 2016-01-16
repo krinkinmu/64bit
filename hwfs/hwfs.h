@@ -33,6 +33,7 @@ struct hwfs_item {
 struct hwfs_value {
 	struct hwfs_key key;
 	uint16_t offset;     // data offset in block
+	uint16_t size;
 } __attribute__((packed));
 
 struct hwfs_inode {
