@@ -18,7 +18,7 @@ AOBJ:= $(ASM:.S=.o)
 all: kernel
 
 kernel: $(AOBJ) $(OBJ) kernel.ld
-	ld $(LFLAGS) -T kernel.ld -o $@ $(AOBJ) $(OBJ)
+	$(LD) $(LFLAGS) -T kernel.ld -o $@ $(AOBJ) $(OBJ)
 
 entry.S: genint.py
 	python $^ > $@
