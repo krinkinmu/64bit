@@ -1,8 +1,6 @@
 #ifndef __HWFS_FORMAT_H__
 #define __HWFS_FORMAT_H__
 
-#include "hwfs.h"
-
-int hwfs_format(int fd, int block_size, long size);
+int hwfs_bootstrap(int fd, size_t node_size, size_t node_count);
 
 #endif /*__HWFS_FORMAT_H__*/

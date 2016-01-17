@@ -59,12 +59,12 @@ static int write_at(int fd, size_t off, const void *data, size_t size)
 	return 0;
 }
 
-struct hwfs_io_extent *hwfs_create_io_extent(uint64_t size)
+struct hwfs_io_extent *hwfs_create_io_extent(size_t size)
 {
 	struct hwfs_io_extent *ext = malloc(sizeof(*ext) + size);
 
 	if (ext) {
-		memset(ext, 0, sizeof(*ext));
+		memset(ext, 0, sizeof(*ext) + size);
 		ext->state = HWFS_EXTENT_NEW;
 		ext->size = size;
 		ext->data = ext + 1;
@@ -130,3 +130,15 @@ int hwfs_read_io_extent(struct hwfs_io_extent *extent, size_t offset,
 	memcpy(data, (const char *)extent->data + offset, size);
 	return 0;
 }
+
+int hwfs_memset_io_extent(struct hwfs_io_extent *extent, size_t offset,
+			int byte, size_t size)
+{
+	if (offset + size > extent->size)
+		return -1;
+
+	memset((char *)extent->data + offset, byte, size);
+	extent->state = HWFS_EXTENT_DIRTY;
+	return 0;
+}
+

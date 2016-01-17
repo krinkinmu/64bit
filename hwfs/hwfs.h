@@ -2,6 +2,8 @@
 #define __HWFS_H__
 
 #include <stdint.h>
+#include <string.h>
+
 #include <endian.h>
 
 #define HWFS_MAGIC    0x12345678
@@ -244,19 +246,41 @@ static inline void hwfs_super_to_disk(struct hwfs_disk_super_block *dsuper,
 	dsuper->node_size = htole16(hsuper->node_size);
 }
 
-struct hwfs_tree_header {
+struct hwfs_disk_tree_header {
 	uint16_t level;
 	uint16_t count;
 	uint16_t blocks;
 } __attribute__((packed));
 
-struct hwfs_node_header {
-	struct hwfs_tree_header hdr;
+struct hwfs_tree_header {
+	uint16_t level;
+	uint16_t count;
+	uint16_t blocks;
+};
+
+static inline void hwfs_tree_to_host(struct hwfs_tree_header *hhdr,
+			struct hwfs_disk_tree_header *dhdr)
+{
+	hhdr->level = le16toh(dhdr->level);
+	hhdr->count = le16toh(dhdr->count);
+	hhdr->blocks = le16toh(dhdr->blocks);
+}
+
+static inline void hwfs_tree_to_disk(struct hwfs_disk_tree_header *dhdr,
+			struct hwfs_tree_header *hhdr)
+{
+	dhdr->level = htole16(hhdr->level);
+	dhdr->count = htole16(hhdr->count);
+	dhdr->blocks = htole16(hhdr->blocks);
+}
+
+struct hwfs_disk_node_header {
+	struct hwfs_disk_tree_header hdr;
 	struct hwfs_item item[];
 } __attribute__((packed));
 
-struct hwfs_leaf_header {
-	struct hwfs_tree_header hdr;
+struct hwfs_disk_leaf_header {
+	struct hwfs_disk_tree_header hdr;
 	struct hwfs_value value[];
 } __attribute__((packed));
 

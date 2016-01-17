@@ -4,29 +4,21 @@
 #include <fcntl.h>
 #include <stdio.h>
 
-#include "disk-io.h"
+#include "format.h"
+#include "hwfs.h"
 
 
-static void test_disk_io(int fd)
+static const size_t node_size = 4096;
+
+static long device_nodes(int fd)
 {
-	const size_t block_size = 4096;
+	const off_t offset = lseek(fd, 0, SEEK_END);
 
-	for (int i = 1; 1; ++i) {
-		struct hwfs_io_extent *extent =
-					hwfs_create_io_extent(i * block_size);
-
-		if (!extent) {
-			fprintf(stderr, "Cannot allocate io extent\n");
-			return;
-		}
-
-		if (hwfs_sync_io_extent(fd, extent)) {
-			fprintf(stderr, "Cannot sync %zu bytes extent\n",
-						i * block_size);
-			hwfs_put_io_extent(extent);
-			return;
-		}
+	if (offset == (off_t)-1) {
+		perror("Cannot get disk size");
+		return -1;
 	}
+	return offset / node_size;
 }
 
 int main(int argc, char **argv)
@@ -43,7 +35,14 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	test_disk_io(fd);
+	const long nodes = device_nodes(fd);
+
+	if (nodes < 0) {
+		close(fd);
+		return 1;
+	}
+
+	hwfs_bootstrap(fd, node_size, nodes);
 
 	close(fd);
 
