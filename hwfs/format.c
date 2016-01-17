@@ -76,9 +76,8 @@ static void hwfs_bootstrap(struct hwfs_block_cache *cache)
 	hwfs_put_block(sb_b);
 }
 
-static void print_keys(struct hwfs_block_cache *cache, uint64_t root)
+static void print_keys(struct hwfs_trans *trans, struct hwfs_tree *tree)
 {
-	struct hwfs_block *block = hwfs_get_block(cache, root);
 	struct hwfs_iter iter;
 	struct hwfs_key key;
 
@@ -86,8 +85,7 @@ static void print_keys(struct hwfs_block_cache *cache, uint64_t root)
 	key.type = 0;
 	key.offset = 0;
 
-	hwfs_lookup(cache, block, &key, &iter);
-
+	hwfs_lookup(trans, tree, &key, &iter);
 	while (1) {
 		if (hwfs_get_key(&iter, &key))
 			break;
@@ -96,15 +94,15 @@ static void print_keys(struct hwfs_block_cache *cache, uint64_t root)
 					(unsigned long long) key.id,
 					(unsigned) key.type,
 					(unsigned long long) key.offset);
-		hwfs_next(cache, &iter);
+		hwfs_next(trans, &iter);
 	}
-	hwfs_put_block(block);
 	hwfs_release_iter(&iter);
 }
 
 int hwfs_format(int fd, int block_size, long size)
 {
 	struct hwfs_block_cache cache;
+	struct hwfs_trans trans;
 
 	if (size / block_size <= hwfs_bootstrap_size) {
 		fprintf(stderr, "Disk isn't large enough\n");
@@ -116,10 +114,12 @@ int hwfs_format(int fd, int block_size, long size)
 	hwfs_block_cache_release(&cache);
 
 	hwfs_block_cache_setup(&cache, fd, block_size, size);
+	hwfs_trans_setup(&trans, &cache);
 	fprintf(stderr, "Filesystem tree keys:\n");
-	print_keys(&cache, 1);
+	print_keys(&trans, &trans.fs_tree);
 	fprintf(stderr, "Extent tree keys:\n");
-	print_keys(&cache, 2);
+	print_keys(&trans, &trans.extent_tree);
+	hwfs_trans_release(&trans);
 	hwfs_block_cache_release(&cache);
 
 	return 0;

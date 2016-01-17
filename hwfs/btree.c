@@ -158,6 +158,44 @@ int hwfs_leaf_insert(struct hwfs_block *block, struct hwfs_key *key,
 	return 0;
 }
 
+static int __hwfs_trans_reserve_space(struct hwfs_trans *trans, uint64_t offset)
+{
+	struct hwfs_stripe *stripe = &trans->free_space;
+	struct hwfs_key key = { 0, HWFS_EXTENT, offset };
+	struct hwfs_extent extent;
+	struct hwfs_iter iter;
+	uint64_t end;
+
+	hwfs_lookup(trans, &trans->extent_tree, &key, &iter);
+	hwfs_get_key(&iter, &key);
+	hwfs_get_data(&iter, &extent, 0, sizeof(extent));
+	end = key.offset + le64toh(extent.size);	
+	hwfs_next(trans, &iter);
+
+	while (hwfs_get_key(&iter, &key) == 0) {
+		if (end < key.offset) {
+			stripe->blocknr = end;
+			stripe->count = key.offset - end;
+			stripe->next = 0;
+			return 0;
+		}
+
+		hwfs_get_data(&iter, &extent, 0, sizeof(extent));
+		end = key.offset + le64toh(extent.size);
+		hwfs_next(trans, &iter);
+	}
+	return -1;
+}
+
+static int hwfs_trans_reserve_space(struct hwfs_trans *trans)
+{
+	struct hwfs_stripe *stripe = &trans->free_space;
+
+	if (__hwfs_trans_reserve_space(trans, stripe->blocknr + stripe->count))
+		return __hwfs_trans_reserve_space(trans, 0);
+	return 0;
+}
+
 void hwfs_trans_setup(struct hwfs_trans *trans, struct hwfs_block_cache *cache)
 {
 	memset(trans, 0, sizeof(*trans));
@@ -167,15 +205,24 @@ void hwfs_trans_setup(struct hwfs_trans *trans, struct hwfs_block_cache *cache)
 
 	struct hwfs_super_block *sb = trans->super_block->data;
 
-	trans->fs_tree_root = hwfs_get_block(cache, le64toh(sb->fs_tree_root));
-	trans->extent_tree_root = hwfs_get_block(cache,
+	trans->fs_tree.root = hwfs_get_block(cache, le64toh(sb->fs_tree_root));
+	trans->extent_tree.root = hwfs_get_block(cache,
 				le64toh(sb->extent_tree_root));
+	hwfs_trans_reserve_space(trans);
+}
+
+void hwfs_trans_commit(struct hwfs_trans *trans)
+{
+	struct hwfs_super_block *sb = trans->super_block->data;
+
+	sb->fs_tree_root = htole64(trans->fs_tree.root->blocknr);
+	sb->extent_tree_root = htole64(trans->extent_tree.root->blocknr);
 }
 
 void hwfs_trans_release(struct hwfs_trans *trans)
 {
-	hwfs_put_block(trans->extent_tree_root);
-	hwfs_put_block(trans->fs_tree_root);
+	hwfs_put_block(trans->extent_tree.root);
+	hwfs_put_block(trans->fs_tree.root);
 	hwfs_put_block(trans->super_block);
 }
 
@@ -230,8 +277,9 @@ int hwfs_get_data(struct hwfs_iter *iter, void *data, int off, int sz)
 	return copy;
 }
 
-int hwfs_prev(struct hwfs_block_cache *cache, struct hwfs_iter *iter)
+int hwfs_prev(struct hwfs_trans *trans, struct hwfs_iter *iter)
 {
+	struct hwfs_block_cache *cache = trans->cache;
 	int level = 0;
 
 	if (iter->node[level] == 0)
@@ -273,8 +321,9 @@ int hwfs_prev(struct hwfs_block_cache *cache, struct hwfs_iter *iter)
 	return 0;
 }
 
-int hwfs_next(struct hwfs_block_cache *cache, struct hwfs_iter *iter)
+int hwfs_next(struct hwfs_trans *trans, struct hwfs_iter *iter)
 {
+	struct hwfs_block_cache *cache = trans->cache;
 	int level = 0;
 
 	if (iter->node[level] == 0)
@@ -327,13 +376,40 @@ void hwfs_release_iter(struct hwfs_iter *iter)
 	iter->root_level = 0;
 }
 
-int hwfs_lookup(struct hwfs_block_cache *cache, struct hwfs_block *root,
-			struct hwfs_key *key, struct hwfs_iter *iter)
+static struct hwfs_block *hwfs_cow_block(struct hwfs_trans *trans,
+			struct hwfs_block *block)
 {
-	struct hwfs_block *block = root;
+	struct hwfs_stripe *stripe = &trans->free_space;
+	const uint64_t blocknr = stripe->blocknr + stripe->next++;
+	struct hwfs_block *copy = hwfs_get_block(trans->cache, blocknr);
+
+	memcpy(copy->data, block->data, trans->cache->block_size);
+	hwfs_put_block(block);
+	return copy;
+}
+
+enum hwfs_lookup_mode {
+	HWFS_LOOKUP,
+	HWFS_INSERT,
+	HWFS_DELETE
+};
+
+static int __hwfs_lookup(struct hwfs_trans *trans, struct hwfs_tree *tree,
+			struct hwfs_key *key, struct hwfs_iter *iter,
+			enum hwfs_lookup_mode mode)
+{
+	struct hwfs_block_cache *cache = trans->cache;
+	struct hwfs_block *block = tree->root;
 	int level = hwfs_node_level(block);
+	const int cow = mode != HWFS_LOOKUP;
 
 	memset(iter, 0, sizeof(*iter));
+
+	if (cow) {
+		block = hwfs_cow_block(trans, block);
+		tree->root = block;
+	}
+
 	iter->root_level = level;
 	iter->pos[level] = hwfs_tree_pos(block, key);
 	iter->node[level] = block;
@@ -346,6 +422,16 @@ int hwfs_lookup(struct hwfs_block_cache *cache, struct hwfs_block *root,
 		const uint64_t blocknr = le64toh(item[pos].blocknr);
 
 		block = hwfs_get_block(cache, blocknr);
+		if (cow) {
+			struct hwfs_block *parent = iter->node[level + 1];
+			struct hwfs_node_header *hdr = parent->data;
+			struct hwfs_item *item = hdr->item;
+			const int ppos = iter->pos[level + 1];
+
+			block = hwfs_cow_block(trans, block);
+			item[ppos].blocknr = htole64(block->blocknr);
+		}
+
 		level = hwfs_node_level(block);
 		iter->node[level] = block;
 		iter->pos[level] = hwfs_tree_pos(block, key);
@@ -355,4 +441,22 @@ int hwfs_lookup(struct hwfs_block_cache *cache, struct hwfs_block *root,
 
 	hwfs_get_key(iter, &tmp);
 	return hwfs_cmp_keys(&tmp, key) == 0;
+}
+
+int hwfs_lookup(struct hwfs_trans *trans, struct hwfs_tree *tree,
+			struct hwfs_key *key, struct hwfs_iter *iter)
+{
+	return __hwfs_lookup(trans, tree, key, iter, HWFS_LOOKUP);
+}
+
+int hwfs_lookup_insert(struct hwfs_trans *trans, struct hwfs_tree *tree,
+			struct hwfs_key *key, struct hwfs_iter *iter)
+{
+	return __hwfs_lookup(trans, tree, key, iter, HWFS_INSERT);
+}
+
+int hwfs_lookup_delete(struct hwfs_trans *trans, struct hwfs_tree *tree,
+			struct hwfs_key *key, struct hwfs_iter *iter)
+{
+	return __hwfs_lookup(trans, tree, key, iter, HWFS_DELETE);
 }
