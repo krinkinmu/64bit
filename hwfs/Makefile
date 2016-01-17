@@ -5,7 +5,7 @@ LFLAGS :=
 
 SRC := mkfs.c format.c disk-io.c transaction.c rbtree.c
 OBJ := $(SRC:.c=.o)
-DEB := $(SRC:.c=.d)
+DEP := $(SRC:.c=.d)
 
 all: mkfs
 
