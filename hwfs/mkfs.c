@@ -4,19 +4,29 @@
 #include <fcntl.h>
 #include <stdio.h>
 
-#include "format.h"
+#include "disk-io.h"
 
 
-static const int block_size = 4096;
-
-
-static long device_size(int fd)
+static void test_disk_io(int fd)
 {
-	const off_t size = lseek(fd, 0, SEEK_END);
+	const size_t block_size = 4096;
 
-	if (size == (off_t)-1)
-		return -1;
-	return (long)size;
+	for (int i = 1; 1; ++i) {
+		struct hwfs_io_extent *extent =
+					hwfs_create_io_extent(i * block_size);
+
+		if (!extent) {
+			fprintf(stderr, "Cannot allocate io extent\n");
+			return;
+		}
+
+		if (hwfs_sync_io_extent(fd, extent)) {
+			fprintf(stderr, "Cannot sync %zu bytes extent\n",
+						i * block_size);
+			hwfs_put_io_extent(extent);
+			return;
+		}
+	}
 }
 
 int main(int argc, char **argv)
@@ -33,16 +43,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	const long size = device_size(fd);
-
-	if (size < 0) {
-		perror("Cannot detect device size");
-		close(fd);
-		return 1;
-	}
-
-	if (hwfs_format(fd, block_size, size) < 0)
-		fprintf(stderr, "Format failed\n");
+	test_disk_io(fd);
 
 	close(fd);
 
