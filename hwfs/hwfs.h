@@ -26,7 +26,7 @@ struct hwfs_key {
 /* b+ internal node is array of hwfs_items and hwfs_node_header */
 struct hwfs_item {
 	struct hwfs_key key;
-	uint64_t offset;
+	uint64_t blocknr;
 } __attribute__((packed));
 
 /* b+ leaf is array of hwfs_values and hwfs_leaf_header */
@@ -67,15 +67,18 @@ struct hwfs_super_block {
 	uint16_t node_size;        // fanout
 } __attribute__((packed));
 
-struct hwfs_node_header {
+struct hwfs_tree_header {
 	uint16_t level;
-	uint16_t items;
+	uint16_t count;
+} __attribute__((packed));
+
+struct hwfs_node_header {
+	struct hwfs_tree_header hdr;
 	struct hwfs_item item[];
 } __attribute__((packed));
 
 struct hwfs_leaf_header {
-	uint16_t level;
-	uint16_t values;
+	struct hwfs_tree_header hdr;
 	struct hwfs_value value[];
 } __attribute__((packed));
 
