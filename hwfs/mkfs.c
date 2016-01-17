@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 
+#include "transaction.h"
 #include "format.h"
 #include "hwfs.h"
 
@@ -43,6 +44,11 @@ int main(int argc, char **argv)
 	}
 
 	hwfs_bootstrap(fd, node_size, nodes);
+
+	struct hwfs_trans trans;
+
+	hwfs_trans_setup(&trans, fd);
+	hwfs_trans_release(&trans);
 
 	close(fd);
 
