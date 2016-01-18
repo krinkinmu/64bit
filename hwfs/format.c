@@ -2,7 +2,9 @@
 
 #include "disk-io.h"
 #include "format.h"
+#include "btree.h"
 #include "hwfs.h"
+
 
 int hwfs_bootstrap(int fd, size_t node_size, size_t node_count)
 {
@@ -14,6 +16,20 @@ int hwfs_bootstrap(int fd, size_t node_size, size_t node_count)
 		return -1;
 	}
 
+	struct hwfs_io_extent *ext = hwfs_create_io_extent(node_size);
+	struct hwfs_node *node = hwfs_create_node(node_size);
+
+	if (!ext || !node) {
+		fprintf(stderr, "Failed to allocate memory\n");
+		hwfs_put_io_extent(ext);
+		hwfs_destroy_node(node);
+		return -1;
+	}
+
+	node->size = node_size;
+	node->block[0] = ext;
+
+
 	struct hwfs_disk_super_block dsuper;
 	struct hwfs_super_block super;
 
@@ -23,13 +39,6 @@ int hwfs_bootstrap(int fd, size_t node_size, size_t node_count)
 	super.root_node_id = 0;
 	super.next_node_id = 1;
 	super.node_size = node_size;
-
-	struct hwfs_io_extent *ext = hwfs_create_io_extent(node_size);
-
-	if (!ext) {
-		fprintf(stderr, "Failed to allocate memory\n");
-		return -1;
-	}
 
 	ext->offset = 0;
 	hwfs_super_to_disk(&dsuper, &super);
@@ -41,52 +50,72 @@ int hwfs_bootstrap(int fd, size_t node_size, size_t node_count)
 		return -1;
 	}
 
-	struct hwfs_tree_header hdr;
-	struct hwfs_disk_tree_header dhdr;
-	struct hwfs_value value[2];
-	struct hwfs_disk_value dvalue[2];
+	node->header.level = 0;
+	node->header.count = 0;
+	node->header.blocks = 1;
 
-	hdr.level = 0;
-	hdr.count = 2;
-	hdr.blocks = 1;
+	struct hwfs_key key;
 
-	value[0].key.id = 0;
-	value[0].key.type = HWFS_LOW_SENTINEL;
-	value[0].key.offset = 0;
-	value[0].offset = node_size;
-	value[0].size = 0;
+	key.id = 0;
+	key.type = HWFS_LOW_SENTINEL;
+	key.offset = 0;
 
-	value[1].key.id = ~(uint64_t)0;
-	value[1].key.type = HWFS_HIGH_SENTINEL;
-	value[1].key.offset = ~(uint64_t)0;
-	value[1].offset = node_size;
-	value[1].size = 0;
+	hwfs_leaf_insert(node, &key, 0, 0);
 
-	hwfs_tree_to_disk(&dhdr, &hdr);
-	hwfs_value_to_disk(dvalue, value);
-	hwfs_value_to_disk(dvalue + 1, value + 1);
+	key.id = ~(uint64_t)0;
+	key.type = HWFS_HIGH_SENTINEL;
+	key.offset = ~(uint64_t)0;
+
+	hwfs_leaf_insert(node, &key, 0, 0);
 
 	ext->offset = hwfs_fs_tree_root * node_size;
-	hwfs_memset_io_extent(ext, 0, 0, node_size);
-	hwfs_write_io_extent(ext, 0, &dhdr, sizeof(dhdr));
-	hwfs_write_io_extent(ext, sizeof(dhdr), dvalue, sizeof(dvalue));
 	if (hwfs_sync_io_extent(fd, ext) != 0) {
 		fprintf(stderr, "Failed to initialize fs tree\n");
 		hwfs_put_io_extent(ext);
+		hwfs_destroy_node(node);
 		return -1;
 	}
 
+	node->header.level = 0;
+	node->header.count = 0;
+	node->header.blocks = 1;
+
+	key.id = 0;
+	key.type = HWFS_LOW_SENTINEL;
+	key.offset = 0;
+	hwfs_leaf_insert(node, &key, 0, 0);
+
+	key.id = ~(uint64_t)0;
+	key.offset = ~(uint64_t)0;
+	hwfs_leaf_insert(node, &key, 0, 0);
+
+	struct hwfs_disk_extent dextent;
+	struct hwfs_extent extent;
+
+	key.id = 0;
+	key.type = HWFS_EXTENT;
+	key.offset = 0;
+	extent.size = 1;
+	extent.free = 0;
+	hwfs_extent_to_disk(&dextent, &extent);
+	hwfs_leaf_insert(node, &key, &dextent, sizeof(dextent));
+
+	key.offset = 1;
+	extent.size = 2;
+	extent.free = 0;
+	hwfs_extent_to_disk(&dextent, &extent);
+	hwfs_leaf_insert(node, &key, &dextent, sizeof(dextent));
+
 	ext->offset = hwfs_extent_tree_root * node_size;
-	hwfs_memset_io_extent(ext, 0, 0, node_size);
-	hwfs_write_io_extent(ext, 0, &dhdr, sizeof(dhdr));
-	hwfs_write_io_extent(ext, sizeof(dhdr), dvalue, sizeof(dvalue));
 	if (hwfs_sync_io_extent(fd, ext) != 0) {
 		fprintf(stderr, "Failed to initialize extent tree\n");
 		hwfs_put_io_extent(ext);
+		hwfs_destroy_node(node);
 		return -1;
 	}
 
 	hwfs_put_io_extent(ext);
+	hwfs_destroy_node(node);
 
 	return 0;
 }

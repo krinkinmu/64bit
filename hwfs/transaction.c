@@ -45,6 +45,7 @@ static struct hwfs_io_extent *__hwfs_trans_get_extent(struct hwfs_trans *trans,
 	if (!ext)
 		return 0;
 
+	ext->offset = offset;
 	if (sync && hwfs_sync_io_extent(trans->fd, ext) != 0) {
 		hwfs_put_io_extent(ext);
 		return 0;
@@ -129,5 +130,6 @@ void hwfs_trans_release(struct hwfs_trans *trans)
 {
 	hwfs_release_tree(trans, &trans->extent_tree);
 	hwfs_release_tree(trans, &trans->fs_tree);
+	hwfs_trans_put_extent(trans, trans->super_block);
 	hwfs_trans_release_cache(trans);
 }

@@ -36,7 +36,7 @@ struct hwfs_key {
 };
 
 static inline void hwfs_key_to_host(struct hwfs_key *hkey,
-			struct hwfs_disk_key *dkey)
+			const struct hwfs_disk_key *dkey)
 {
 	hkey->id = le64toh(dkey->id);
 	hkey->type = dkey->type;
@@ -44,7 +44,7 @@ static inline void hwfs_key_to_host(struct hwfs_key *hkey,
 }
 
 static inline void hwfs_key_to_disk(struct hwfs_disk_key *dkey,
-			struct hwfs_key *hkey)
+			const struct hwfs_key *hkey)
 {
 	dkey->id = htole64(hkey->id);
 	dkey->type = hkey->type;
@@ -63,14 +63,14 @@ struct hwfs_item {
 };
 
 static inline void hwfs_item_to_host(struct hwfs_item *hitem,
-			struct hwfs_disk_item *ditem)
+			const struct hwfs_disk_item *ditem)
 {
 	hwfs_key_to_host(&hitem->key, &ditem->key);
 	hitem->blocknr = le64toh(ditem->blocknr);
 }
 
 static inline void hwfs_item_to_disk(struct hwfs_disk_item *ditem,
-			struct hwfs_item *hitem)
+			const struct hwfs_item *hitem)
 {
 	hwfs_key_to_disk(&ditem->key, &hitem->key);
 	ditem->blocknr = htole64(hitem->blocknr);
@@ -90,7 +90,7 @@ struct hwfs_value {
 };
 
 static inline void hwfs_value_to_host(struct hwfs_value *hvalue,
-			struct hwfs_disk_value *dvalue)
+			const struct hwfs_disk_value *dvalue)
 {
 	hwfs_key_to_host(&hvalue->key, &dvalue->key);
 	hvalue->offset = le16toh(dvalue->offset);
@@ -98,7 +98,7 @@ static inline void hwfs_value_to_host(struct hwfs_value *hvalue,
 }
 
 static inline void hwfs_value_to_disk(struct hwfs_disk_value *dvalue,
-			struct hwfs_value *hvalue)
+			const struct hwfs_value *hvalue)
 {
 	hwfs_key_to_disk(&dvalue->key, &hvalue->key);
 	dvalue->offset = htole16(hvalue->offset);
@@ -118,7 +118,7 @@ struct hwfs_inode {
 };
 
 static inline void hwfs_inode_to_host(struct hwfs_inode *hnode,
-			struct hwfs_disk_inode *dnode)
+			const struct hwfs_disk_inode *dnode)
 {
 	hnode->size = le64toh(dnode->size);
 	hnode->links = le32toh(dnode->links);
@@ -126,7 +126,7 @@ static inline void hwfs_inode_to_host(struct hwfs_inode *hnode,
 }
 
 static inline void hwfs_inode_to_disk(struct hwfs_disk_inode *dnode,
-			struct hwfs_inode *hnode)
+			const struct hwfs_inode *hnode)
 {
 	dnode->size = htole64(hnode->size);
 	dnode->links = htole32(hnode->links);
@@ -146,7 +146,7 @@ struct hwfs_entry {
 };
 
 static inline void hwfs_entry_to_host(struct hwfs_entry *hentry,
-			struct hwfs_disk_entry *dentry)
+			const struct hwfs_disk_entry *dentry)
 {
 	hentry->nodeid = le64toh(dentry->nodeid);
 	hentry->type = dentry->type;
@@ -154,7 +154,7 @@ static inline void hwfs_entry_to_host(struct hwfs_entry *hentry,
 }
 
 static inline void hwfs_entry_to_disk(struct hwfs_disk_entry *dentry,
-			struct hwfs_entry *hentry)
+			const struct hwfs_entry *hentry)
 {
 	dentry->nodeid = htole64(hentry->nodeid);
 	dentry->type = hentry->type;
@@ -172,14 +172,14 @@ struct hwfs_data {
 };
 
 static inline void hwfs_data_to_host(struct hwfs_data *hdata,
-			struct hwfs_disk_data *ddata)
+			const struct hwfs_disk_data *ddata)
 {
 	hdata->offset = le64toh(ddata->offset);
 	hdata->size = le64toh(ddata->size);
 }
 
 static inline void hwfs_data_to_disk(struct hwfs_disk_data *ddata,
-			struct hwfs_data *hdata)
+			const struct hwfs_data *hdata)
 {
 	ddata->offset = htole64(hdata->offset);
 	ddata->size = htole64(hdata->size);
@@ -196,14 +196,14 @@ struct hwfs_extent {
 };
 
 static inline void hwfs_extent_to_host(struct hwfs_extent *hext,
-			struct hwfs_disk_extent *dext)
+			const struct hwfs_disk_extent *dext)
 {
 	hext->size = le64toh(dext->size);
 	hext->free = le64toh(dext->free);
 }
 
 static inline void hwfs_extent_to_disk(struct hwfs_disk_extent *dext,
-			struct hwfs_extent *hext)
+			const struct hwfs_extent *hext)
 {
 	dext->size = htole64(hext->size);
 	dext->free = htole64(hext->free);
@@ -228,7 +228,7 @@ struct hwfs_super_block {
 };
 
 static inline void hwfs_super_to_host(struct hwfs_super_block *hsuper,
-			struct hwfs_disk_super_block *dsuper)
+			const struct hwfs_disk_super_block *dsuper)
 {
 	hsuper->magic = le64toh(dsuper->magic);
 	hsuper->fs_tree_root = le64toh(dsuper->fs_tree_root);
@@ -239,7 +239,7 @@ static inline void hwfs_super_to_host(struct hwfs_super_block *hsuper,
 }
 
 static inline void hwfs_super_to_disk(struct hwfs_disk_super_block *dsuper,
-			struct hwfs_super_block *hsuper)
+			const struct hwfs_super_block *hsuper)
 {
 	dsuper->magic = htole64(hsuper->magic);
 	dsuper->fs_tree_root = htole64(hsuper->fs_tree_root);
@@ -262,7 +262,7 @@ struct hwfs_tree_header {
 };
 
 static inline void hwfs_tree_to_host(struct hwfs_tree_header *hhdr,
-			struct hwfs_disk_tree_header *dhdr)
+			const struct hwfs_disk_tree_header *dhdr)
 {
 	hhdr->level = le16toh(dhdr->level);
 	hhdr->count = le16toh(dhdr->count);
@@ -270,7 +270,7 @@ static inline void hwfs_tree_to_host(struct hwfs_tree_header *hhdr,
 }
 
 static inline void hwfs_tree_to_disk(struct hwfs_disk_tree_header *dhdr,
-			struct hwfs_tree_header *hhdr)
+			const struct hwfs_tree_header *hhdr)
 {
 	dhdr->level = htole16(hhdr->level);
 	dhdr->count = htole16(hhdr->count);
@@ -279,12 +279,12 @@ static inline void hwfs_tree_to_disk(struct hwfs_disk_tree_header *dhdr,
 
 struct hwfs_disk_node_header {
 	struct hwfs_disk_tree_header hdr;
-	struct hwfs_item item[];
+	struct hwfs_disk_item item[];
 } __attribute__((packed));
 
 struct hwfs_disk_leaf_header {
 	struct hwfs_disk_tree_header hdr;
-	struct hwfs_value value[];
+	struct hwfs_disk_value value[];
 } __attribute__((packed));
 
 #endif /*__HWFS_H__*/
