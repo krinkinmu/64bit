@@ -19,6 +19,9 @@
 #define HWFS_DATA     5
 #define HWFS_EXTENT   6 /* extents stored in a separate tree */
 
+#define HWFS_LOW_SENTINEL  0
+#define HWFS_HIGH_SENTINEL 255
+
 /* pretty much btrfs key */
 struct hwfs_disk_key {
 	uint64_t id;     // 0 for HWFS_EXTENT
