@@ -1,62 +1,59 @@
 #ifndef __B_PLUS_TREE_H__
 #define __B_PLUS_TREE_H__
 
-#include <stdint.h>
+#include "rbtree.h"
+#include "hwfs.h"
 
+#define HWFS_MAX_HEIGHT 16
+#define HWFS_MAX_BLOCKS 16
 
-#define HWFS_MAX_HEIGHT 10
+struct hwfs_io_extent;
+struct hwfs_trans;
 
-struct hwfs_block_cache;
-struct hwfs_block;
-struct hwfs_key;
+enum hwfs_node_state {
+	HWFS_NODE_NEW,
+	HWFS_NODE_UPTODATE,
+	HWFS_NODE_DIRTY
+};
 
-struct hwfs_stripe {
+struct hwfs_node {
+	struct rb_node link;
+	struct hwfs_tree_header header;
 	uint64_t blocknr;
-	uint64_t count;
-	uint64_t next;
+	enum hwfs_node_state state;
+	struct hwfs_io_extent *block[HWFS_MAX_BLOCKS];
 };
 
 struct hwfs_tree {
-	struct hwfs_block *root;
+	struct rb_tree nodes;
+	struct hwfs_node *root;
 };
 
-struct hwfs_trans {
-	struct hwfs_block_cache *cache;
-	struct hwfs_block *super_block;
-	struct hwfs_tree fs_tree;
-	struct hwfs_tree extent_tree;
-	struct hwfs_stripe free_space;
+struct hwfs_tree_iter {
+	struct hwfs_node *node[HWFS_MAX_HEIGHT];
+	int slot[HWFS_MAX_HEIGHT];
+	int height;
 };
 
-struct hwfs_iter {
-	struct hwfs_block *node[HWFS_MAX_HEIGHT];
-	int pos[HWFS_MAX_HEIGHT];
-	int root_level;
-};
+struct hwfs_node *hwfs_create_node(void);
+void hwfs_destroy_node(struct hwfs_node *node);
+void hwfs_put_node(struct hwfs_trans *trans, struct hwfs_node *node);
+int hwfs_read_node(struct hwfs_trans *trans, struct hwfs_node *node,
+			uint64_t blocknr);
 
-
-static inline intmax_t MAX(intmax_t a, intmax_t b)
-{ return a > b ? a : b; }
-
-static inline intmax_t MIN(intmax_t a, intmax_t b)
-{ return a < b ? a : b; }
-
-void hwfs_trans_setup(struct hwfs_trans *trans, struct hwfs_block_cache *cache);
-void hwfs_trans_commit(struct hwfs_trans *trans);
-void hwfs_trans_release(struct hwfs_trans *trans);
-int hwfs_leaf_insert(struct hwfs_block *block, struct hwfs_key *key,
-			const void *item, int size);
-int hwfs_get_key(struct hwfs_iter *iter, struct hwfs_key *key);
-int hwfs_get_data_size(struct hwfs_iter *iter);
-int hwfs_get_data(struct hwfs_iter *iter, void *data, int off, int sz);
-int hwfs_next(struct hwfs_trans *trans, struct hwfs_iter *iter);
-int hwfs_prev(struct hwfs_trans *trans, struct hwfs_iter *iter);
-void hwfs_release_iter(struct hwfs_iter *iter);
-int hwfs_lookup(struct hwfs_trans *trans, struct hwfs_tree *tree,
-			struct hwfs_key *key, struct hwfs_iter *iter);
-int hwfs_lookup_insert(struct hwfs_trans *trans, struct hwfs_tree *tree,
-			struct hwfs_key *key, struct hwfs_iter *iter);
-int hwfs_lookup_delete(struct hwfs_trans *trans, struct hwfs_tree *tree,
-			struct hwfs_key *key, struct hwfs_iter *iter);
+int hwfs_setup_tree(struct hwfs_trans *trans,
+			struct hwfs_tree *tree,
+			uint64_t root);
+void hwfs_release_tree(struct hwfs_trans *trans,
+			struct hwfs_tree *tree);
+struct hwfs_node *hwfs_new_node(struct hwfs_trans *trans,
+			struct hwfs_tree *tree,
+			size_t blocks);
+struct hwfs_node *hwfs_get_node(struct hwfs_trans *trans,
+			struct hwfs_tree *tree,
+			uint64_t blocknr);
+struct hwfs_node *hwfs_cow_node(struct hwfs_trans *trans,
+			struct hwfs_tree *tree,
+			struct hwfs_node *node);
 
 #endif /*__B_PLUS_TREE_H__*/

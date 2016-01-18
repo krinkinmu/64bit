@@ -1,462 +1,224 @@
-#include <string.h>
-#include <assert.h>
+#include <stdlib.h>
 
+#include "transaction.h"
 #include "btree.h"
-#include "cache.h"
-#include "hwfs.h"
 
-static int hwfs_node_count(struct hwfs_block *block)
+struct hwfs_node *hwfs_create_node(void)
 {
-	struct hwfs_tree_header *hdr = block->data;
+	struct hwfs_node *node = malloc(sizeof(*node));
 
-	return le16toh(hdr->count);
-}
-
-static int hwfs_node_level(struct hwfs_block *block)
-{
-	struct hwfs_tree_header *hdr = block->data;
-
-	return le16toh(hdr->level);
-}
-
-/* compare keys in cpu format */
-static int hwfs_cmp_keys(const struct hwfs_key *l, const struct hwfs_key *r)
-{
-	return memcmp(l, r, sizeof(*l));
-}
-
-static void hwfs_key_to_cpu(struct hwfs_key *key)
-{
-	key->id = le64toh(key->id);
-	key->offset = le64toh(key->offset);
-}
-
-static void hwfs_key_to_disk(struct hwfs_key *key)
-{
-	key->id = htole64(key->id);
-	key->offset = htole64(key->offset);
-}
-
-static int hwfs_leaf_pos(struct hwfs_block *block, struct hwfs_key *key)
-{
-	struct hwfs_leaf_header *hdr = block->data;
-	struct hwfs_value *value = hdr->value;
-	const int count = hwfs_node_count(block);
-	int i = 0;
-
-	for (; i < count; ++i) {
-		struct hwfs_key tmp = value[i].key;
-		
-		hwfs_key_to_cpu(&tmp);
-
-		if (hwfs_cmp_keys(&tmp, key) >= 0)
-			break;
+	if (node) {
+		memset(node, 0, sizeof(*node));
+		node->state = HWFS_NODE_NEW;
 	}
-	return i;
+	return node;
 }
 
-static int hwfs_node_pos(struct hwfs_block *block, struct hwfs_key *key)
+void hwfs_destroy_node(struct hwfs_node *node)
 {
-	struct hwfs_node_header *hdr = block->data;
-	struct hwfs_item *item = hdr->item;
-	const int count = hwfs_node_count(block);
-	int i = 0;
+	free(node);
+}
 
-	for (; i < count; ++i) {
-		struct hwfs_key tmp = item[i].key;
-		
-		hwfs_key_to_cpu(&tmp);
-		if (hwfs_cmp_keys(&tmp, key) >= 0)
-			break;
+static void hwfs_release_node(struct hwfs_trans *trans, struct hwfs_node *node)
+{
+	for (unsigned i = 0; i != HWFS_MAX_BLOCKS; ++i) {
+		if (!node->block[i])
+			continue;
+		hwfs_trans_put_extent(trans, node->block[i]);
 	}
-	return i;
+	memset(node, 0, sizeof(*node));
 }
 
-static int hwfs_tree_pos(struct hwfs_block *block, struct hwfs_key *key)
+int hwfs_read_node(struct hwfs_trans *trans, struct hwfs_node *node,
+			uint64_t blocknr)
 {
-	if (hwfs_node_level(block) != 0)
-		return hwfs_node_pos(block, key);
-	return hwfs_leaf_pos(block, key);
-}
+	node->block[0] = hwfs_trans_get_extent(trans, blocknr);
 
-static int hwfs_reserve_data(struct hwfs_block *block, int pos, int size)
-{
-	struct hwfs_block_cache *cache = block->cache;
-	struct hwfs_leaf_header *hdr = block->data;
-	struct hwfs_value *value = hdr->value;
-	const int count = hwfs_node_count(block);
-
-	if (count == 0)
-		return cache->block_size - size;
-
-	if (pos >= count)
-		return le16toh(value[count - 1].offset) - size;
-
-	const int end = le16toh(value[pos].offset) + le16toh(value[pos].size);
-	const int begin = le16toh(value[count - 1].offset);
-	char *data = block->data;
-
-	memmove(data + begin - size, data + begin, end - begin);
-	for (int i = pos; i != count; ++i)
-		value[i].offset = htole16(le16toh(value[i].offset) - size);
-
-	return end - size;
-}
-
-static void hwfs_reserve_values(struct hwfs_block *block, int pos, int places)
-{
-	struct hwfs_leaf_header *hdr = block->data;
-	struct hwfs_value *value = hdr->value;
-	const int count = hwfs_node_count(block);
-
-	if (pos >= count || places == 0)
-		return;
-
-	memmove(value + pos + places, value + pos,
-				(count - pos) * sizeof(*value));
-}
-
-static unsigned hwfs_leaf_room(struct hwfs_block *block)
-{
-	struct hwfs_block_cache *cache = block->cache;
-	struct hwfs_leaf_header *hdr = block->data;
-	struct hwfs_value *value = hdr->value;
-	const int count = hwfs_node_count(block);
-
-	if (count == 0)
-		return cache->block_size - sizeof(*hdr);
-
-	const int data_begin = le16toh(value[count - 1].offset);
-	const int value_end = (char *)(value + count) - (char *)block->data;
-
-	assert(value_end <= data_begin);
-
-	return data_begin - value_end;
-}
-
-int hwfs_leaf_insert(struct hwfs_block *block, struct hwfs_key *key,
-			const void *item, int size)
-{
-	struct hwfs_leaf_header *hdr = block->data;
-	struct hwfs_value *value = hdr->value;
-
-	if (hwfs_leaf_room(block) < size + sizeof(struct hwfs_value))
+	if (!node->block[0])
 		return -1;
 
-	const int pos = hwfs_leaf_pos(block, key);
-	const int offset = hwfs_reserve_data(block, pos, size);
-	hwfs_reserve_values(block, pos, 1);
+	struct hwfs_disk_tree_header header;
 
-	hdr->hdr.count = htole16(le16toh(hdr->hdr.count) + 1);
-	value[pos].key = *key;
-	value[pos].size = htole16(size);
-	value[pos].offset = htole16(offset);
-	hwfs_key_to_disk(&value[pos].key);
+	hwfs_read_io_extent(node->block[0], 0, &header, sizeof(header));
+	hwfs_tree_to_host(&node->header, &header);
 
-	if (size != 0)
-		memcpy((char *)block->data + offset, item, size);
-	return 0;
-}
+	for (unsigned i = 1; i < node->header.blocks; ++i) {
+		node->block[i] = hwfs_trans_get_extent(trans, blocknr + i);
 
-static int __hwfs_trans_reserve_space(struct hwfs_trans *trans, uint64_t offset)
-{
-	struct hwfs_stripe *stripe = &trans->free_space;
-	struct hwfs_key key = { 0, HWFS_EXTENT, offset };
-	struct hwfs_extent extent;
-	struct hwfs_iter iter;
-	uint64_t end;
-
-	hwfs_lookup(trans, &trans->extent_tree, &key, &iter);
-	hwfs_get_key(&iter, &key);
-	hwfs_get_data(&iter, &extent, 0, sizeof(extent));
-	end = key.offset + le64toh(extent.size);	
-	hwfs_next(trans, &iter);
-
-	while (hwfs_get_key(&iter, &key) == 0) {
-		if (end < key.offset) {
-			stripe->blocknr = end;
-			stripe->count = key.offset - end;
-			stripe->next = 0;
-			return 0;
+		if (!node->block[i]) {
+			hwfs_release_node(trans, node);
+			return -1;
 		}
-
-		hwfs_get_data(&iter, &extent, 0, sizeof(extent));
-		end = key.offset + le64toh(extent.size);
-		hwfs_next(trans, &iter);
 	}
-	return -1;
-}
 
-static int hwfs_trans_reserve_space(struct hwfs_trans *trans)
-{
-	struct hwfs_stripe *stripe = &trans->free_space;
-
-	if (__hwfs_trans_reserve_space(trans, stripe->blocknr + stripe->count))
-		return __hwfs_trans_reserve_space(trans, 0);
+	node->state = HWFS_NODE_UPTODATE;
+	node->blocknr = blocknr;
 	return 0;
 }
 
-void hwfs_trans_setup(struct hwfs_trans *trans, struct hwfs_block_cache *cache)
+void hwfs_put_node(struct hwfs_trans *trans, struct hwfs_node *node)
 {
-	memset(trans, 0, sizeof(*trans));
-	trans->cache = cache;
-
-	trans->super_block = hwfs_get_block(cache, 0);
-
-	struct hwfs_super_block *sb = trans->super_block->data;
-
-	trans->fs_tree.root = hwfs_get_block(cache, le64toh(sb->fs_tree_root));
-	trans->extent_tree.root = hwfs_get_block(cache,
-				le64toh(sb->extent_tree_root));
-	hwfs_trans_reserve_space(trans);
+	hwfs_release_node(trans, node);
+	hwfs_destroy_node(node);
 }
 
-void hwfs_trans_commit(struct hwfs_trans *trans)
-{
-	struct hwfs_super_block *sb = trans->super_block->data;
-
-	sb->fs_tree_root = htole64(trans->fs_tree.root->blocknr);
-	sb->extent_tree_root = htole64(trans->extent_tree.root->blocknr);
-}
-
-void hwfs_trans_release(struct hwfs_trans *trans)
-{
-	hwfs_put_block(trans->extent_tree.root);
-	hwfs_put_block(trans->fs_tree.root);
-	hwfs_put_block(trans->super_block);
-}
-
-static int hwfs_get_value(struct hwfs_iter *iter, struct hwfs_value *value)
-{
-	struct hwfs_block *block = iter->node[0];
-
-	if (!block)
-		return -1;
-
-	struct hwfs_leaf_header *hdr = block->data;
-	*value = hdr->value[iter->pos[0]];
-	return 0;
-}
-
-int hwfs_get_key(struct hwfs_iter *iter, struct hwfs_key *key)
-{
-	struct hwfs_value value;
-
-	if (hwfs_get_value(iter, &value) != 0)
-		return -1;
-
-	*key = value.key;
-	hwfs_key_to_cpu(key);
-	return 0;
-}
-
-int hwfs_get_data_size(struct hwfs_iter *iter)
-{
-	struct hwfs_value value;
-
-	if (hwfs_get_value(iter, &value) != 0)
-		return -1;
-
-	return le16toh(value.size);
-}
-
-int hwfs_get_data(struct hwfs_iter *iter, void *data, int off, int sz)
-{
-	struct hwfs_value value;
-
-	if (hwfs_get_value(iter, &value) != 0)
-		return -1;
-
-	struct hwfs_block *block = iter->node[0];
-	const int offset = le16toh(value.offset);
-	const int size = le16toh(value.size);
-	const int copy = MAX(0, MIN(size - off, sz));
-
-	if (copy)
-		memcpy(data, (char *)block->data + offset + off, copy);
-	return copy;
-}
-
-int hwfs_prev(struct hwfs_trans *trans, struct hwfs_iter *iter)
-{
-	struct hwfs_block_cache *cache = trans->cache;
-	int level = 0;
-
-	if (iter->node[level] == 0)
-		return -1;
-
-	while (level <= iter->root_level) {
-		struct hwfs_block *block = iter->node[level];
-
-		if (iter->pos[level] > 0) {
-			--iter->pos[level];
-			break;
-		}
-
-		hwfs_put_block(block);
-		iter->node[level] = 0;
-		++level;
-	}
-
-	if (level > iter->root_level)
-		return -1;
-
-	while (level > 0) {
-		struct hwfs_block *block = iter->node[level];
-		struct hwfs_node_header *node_hdr = block->data;
-		struct hwfs_item *item = node_hdr->item;
-		const int pos = iter->pos[level];
-		const uint64_t blocknr = le64toh(item[pos].blocknr);
-
-		struct hwfs_block *child = hwfs_get_block(cache, blocknr);
-		const int child_level = hwfs_node_level(child);
-
-		assert(child_level == level - 1);
-
-		iter->node[child_level] = child;
-		iter->pos[child_level] = hwfs_node_count(child) - 1;
-		level = child_level;
-	}
-
-	return 0;
-}
-
-int hwfs_next(struct hwfs_trans *trans, struct hwfs_iter *iter)
-{
-	struct hwfs_block_cache *cache = trans->cache;
-	int level = 0;
-
-	if (iter->node[level] == 0)
-		return -1;
-
-	while (level <= iter->root_level) {
-		struct hwfs_block *block = iter->node[level];
-		const int count = hwfs_node_count(block);
-
-		if (iter->pos[level] < count - 1) {
-			++iter->pos[level];
-			break;
-		}
-
-		hwfs_put_block(block);
-		iter->node[level] = 0;
-		iter->pos[level] = 0;
-		++level;
-	}
-
-	if (level > iter->root_level)
-		return -1;
-
-	while (level > 0) {
-		struct hwfs_block *block = iter->node[level];
-		struct hwfs_node_header *node_hdr = block->data;
-		struct hwfs_item *item = node_hdr->item;
-		const int pos = iter->pos[level];
-		const uint64_t blocknr = le64toh(item[pos].blocknr);
-
-		struct hwfs_block *child = hwfs_get_block(cache, blocknr);
-		const int child_level = hwfs_node_level(child);
-
-		assert(child_level == level - 1);
-
-		iter->node[child_level] = child;
-		level = child_level;
-	}
-
-	return 0;
-}
-
-void hwfs_release_iter(struct hwfs_iter *iter)
-{
-	for (int level = 0; iter->node[level]; ++level) {
-		hwfs_put_block(iter->node[level]);
-		iter->node[level] = 0;
-		iter->pos[level] = 0;
-	}
-	iter->root_level = 0;
-}
-
-static struct hwfs_block *hwfs_cow_block(struct hwfs_trans *trans,
-			struct hwfs_block *block)
-{
-	struct hwfs_stripe *stripe = &trans->free_space;
-	const uint64_t blocknr = stripe->blocknr + stripe->next++;
-	struct hwfs_block *copy = hwfs_get_block(trans->cache, blocknr);
-
-	memcpy(copy->data, block->data, trans->cache->block_size);
-	hwfs_put_block(block);
-	return copy;
-}
-
-enum hwfs_lookup_mode {
-	HWFS_LOOKUP,
-	HWFS_INSERT,
-	HWFS_DELETE
+struct hwfs_node_cache_iter {
+	struct rb_node **plink;
+	struct rb_node *parent;
+	struct hwfs_node *node;
 };
 
-static int __hwfs_lookup(struct hwfs_trans *trans, struct hwfs_tree *tree,
-			struct hwfs_key *key, struct hwfs_iter *iter,
-			enum hwfs_lookup_mode mode)
+static int hwfs_node_cache_lookup(struct hwfs_tree *tree, uint64_t blocknr,
+			struct hwfs_node_cache_iter *iter)
 {
-	struct hwfs_block_cache *cache = trans->cache;
-	struct hwfs_block *block = tree->root;
-	int level = hwfs_node_level(block);
-	const int cow = mode != HWFS_LOOKUP;
+	struct rb_node **plink = &tree->nodes.root;
+	struct rb_node *parent = 0;
 
-	memset(iter, 0, sizeof(*iter));
+	while (*plink) {
+		struct hwfs_node *node = TREE_ENTRY(*plink, struct hwfs_node,
+					link);
+		const uint64_t x = node->blocknr;
 
-	if (cow) {
-		block = hwfs_cow_block(trans, block);
-		tree->root = block;
-	}
-
-	iter->root_level = level;
-	iter->pos[level] = hwfs_tree_pos(block, key);
-	iter->node[level] = block;
-	++block->links;
-
-	while (level != 0) {
-		struct hwfs_node_header *node_hdr = block->data;
-		struct hwfs_item *item = node_hdr->item;
-		const int pos = iter->pos[level];
-		const uint64_t blocknr = le64toh(item[pos].blocknr);
-
-		block = hwfs_get_block(cache, blocknr);
-		if (cow) {
-			struct hwfs_block *parent = iter->node[level + 1];
-			struct hwfs_node_header *hdr = parent->data;
-			struct hwfs_item *item = hdr->item;
-			const int ppos = iter->pos[level + 1];
-
-			block = hwfs_cow_block(trans, block);
-			item[ppos].blocknr = htole64(block->blocknr);
+		if (x == blocknr) {
+			iter->plink = plink;
+			iter->parent = parent;
+			iter->node = node;
+			return 1;
 		}
 
-		level = hwfs_node_level(block);
-		iter->node[level] = block;
-		iter->pos[level] = hwfs_tree_pos(block, key);
+		parent = *plink;
+		if (x < blocknr)
+			plink = &parent->right;
+		else
+			plink = &parent->left;
 	}
 
-	struct hwfs_key tmp;
-
-	hwfs_get_key(iter, &tmp);
-	return hwfs_cmp_keys(&tmp, key) == 0;
+	iter->plink = plink;
+	iter->parent = parent;
+	iter->node = 0;
+	return 0;
 }
 
-int hwfs_lookup(struct hwfs_trans *trans, struct hwfs_tree *tree,
-			struct hwfs_key *key, struct hwfs_iter *iter)
+int hwfs_setup_tree(struct hwfs_trans *trans,
+			struct hwfs_tree *tree,
+			uint64_t root)
 {
-	return __hwfs_lookup(trans, tree, key, iter, HWFS_LOOKUP);
+	memset(tree, 0, sizeof(*tree));
+	tree->root = hwfs_get_node(trans, tree, root);
+
+	if (!tree->root)
+		return -1;
+	return 0;
 }
 
-int hwfs_lookup_insert(struct hwfs_trans *trans, struct hwfs_tree *tree,
-			struct hwfs_key *key, struct hwfs_iter *iter)
+static void __hwfs_put_nodes(struct hwfs_trans *trans, struct rb_node *node)
 {
-	return __hwfs_lookup(trans, tree, key, iter, HWFS_INSERT);
+	while (!node) {
+		struct hwfs_node *x = TREE_ENTRY(node, struct hwfs_node, link);
+
+		__hwfs_put_nodes(trans, node->right);
+		node = node->left;
+		hwfs_put_node(trans, x);
+	}
 }
 
-int hwfs_lookup_delete(struct hwfs_trans *trans, struct hwfs_tree *tree,
-			struct hwfs_key *key, struct hwfs_iter *iter)
+void hwfs_release_tree(struct hwfs_trans *trans,
+			struct hwfs_tree *tree)
 {
-	return __hwfs_lookup(trans, tree, key, iter, HWFS_DELETE);
+	__hwfs_put_nodes(trans, tree->nodes.root);
+	memset(tree, 0, sizeof(*tree));
+}
+
+struct hwfs_node *hwfs_new_node(struct hwfs_trans *trans,
+			struct hwfs_tree *tree,
+			size_t blocks)
+{
+	struct hwfs_node *new = hwfs_create_node();
+
+	if (!new)
+		return 0;
+
+	const int64_t blocknr = hwfs_trans_alloc(trans, blocks);
+
+	if (blocknr < 0) {
+		hwfs_destroy_node(new);
+		return 0;
+	}
+
+	for (size_t i = 0; i != blocks; ++i) {
+		new->block[i] = hwfs_trans_get_new_extent(trans, blocknr + i);
+
+		if (!new->block[i]) {
+			hwfs_trans_free(trans, blocknr, blocks);
+			hwfs_put_node(trans, new);
+			return 0;
+		}
+	}
+
+	struct hwfs_disk_tree_header hdr;
+
+	new->header.level = 0;
+	new->header.count = 0;
+	new->header.blocks = blocks;
+
+	hwfs_tree_to_disk(&hdr, &new->header);
+	hwfs_write_io_extent(new->block[0]->data, 0, &hdr, sizeof(hdr));
+
+	new->state = HWFS_NODE_DIRTY;
+	new->blocknr = blocknr;
+
+	struct hwfs_node_cache_iter iter;
+
+	hwfs_node_cache_lookup(tree, blocknr, &iter);
+	rb_link(&new->link, iter.parent, iter.plink);
+	rb_insert(&new->link, &tree->nodes);
+
+	return new;
+}
+
+struct hwfs_node *hwfs_get_node(struct hwfs_trans *trans,
+			struct hwfs_tree *tree, uint64_t blocknr)
+{
+	struct hwfs_node_cache_iter iter;
+
+	if (hwfs_node_cache_lookup(tree, blocknr, &iter))
+		return iter.node;
+
+	struct hwfs_node *node = hwfs_create_node();
+
+	if (!node)
+		return 0;
+
+	if (hwfs_read_node(trans, node, blocknr)) {
+		hwfs_put_node(trans, node);
+		return 0;
+	}
+
+	rb_link(&node->link, iter.parent, iter.plink);
+	rb_insert(&node->link, &tree->nodes);
+	return node;
+}
+
+struct hwfs_node *hwfs_cow_node(struct hwfs_trans *trans,
+			struct hwfs_tree *tree,
+			struct hwfs_node *node)
+{
+	if (node->state != HWFS_NODE_UPTODATE)
+		return node;
+
+	const size_t blocks = node->header.blocks;
+	struct hwfs_node *copy = hwfs_new_node(trans, tree, blocks);
+
+	if (!copy)
+		return 0;
+
+	for (size_t i = 0; i != blocks; ++i)
+		hwfs_write_io_extent(copy->block[i], 0, node->block[i]->data,
+					trans->node_size);
+	copy->header = node->header;
+	if (node == tree->root)
+		tree->root = copy;
+	hwfs_trans_free(trans, node->blocknr, node->header.blocks);
+
+	return copy;
 }

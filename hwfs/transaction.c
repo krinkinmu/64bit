@@ -4,8 +4,23 @@
 #include "transaction.h"
 #include "hwfs.h"
 
-static struct hwfs_io_extent *hwfs_trans_get_extent(struct hwfs_trans *trans,
-				uint64_t blocknr)
+int64_t hwfs_trans_alloc(struct hwfs_trans *trans, size_t blocks)
+{
+	(void) trans;
+	(void) blocks;
+
+	return 0;
+}
+
+void hwfs_trans_free(struct hwfs_trans *trans, uint64_t blocknr, size_t blocks)
+{
+	(void) trans;
+	(void) blocknr;
+	(void) blocks;
+}
+
+static struct hwfs_io_extent *__hwfs_trans_get_extent(struct hwfs_trans *trans,
+				uint64_t blocknr, int sync)
 {
 	const uint64_t offset = trans->node_size * blocknr;
 	struct rb_node **plink = &trans->io_cache.root;
@@ -30,7 +45,7 @@ static struct hwfs_io_extent *hwfs_trans_get_extent(struct hwfs_trans *trans,
 	if (!ext)
 		return 0;
 
-	if (hwfs_sync_io_extent(trans->fd, ext) != 0) {
+	if (sync && hwfs_sync_io_extent(trans->fd, ext) != 0) {
 		hwfs_put_io_extent(ext);
 		return 0;
 	}
@@ -40,8 +55,19 @@ static struct hwfs_io_extent *hwfs_trans_get_extent(struct hwfs_trans *trans,
 	return ext;
 }
 
-static void hwfs_trans_put_extent(struct hwfs_trans *trans,
-			struct hwfs_io_extent *ext)
+struct hwfs_io_extent *hwfs_trans_get_extent(struct hwfs_trans *trans,
+				uint64_t blocknr)
+{
+	return __hwfs_trans_get_extent(trans, blocknr, 1);
+}
+
+struct hwfs_io_extent *hwfs_trans_get_new_extent(struct hwfs_trans *trans,
+				uint64_t blocknr)
+{
+	return __hwfs_trans_get_extent(trans, blocknr, 0);
+}
+
+void hwfs_trans_put_extent(struct hwfs_trans *trans, struct hwfs_io_extent *ext)
 {
 	if (ext->links == 1)
 		rb_erase(&ext->link, &trans->io_cache);
@@ -63,16 +89,14 @@ int hwfs_trans_setup(struct hwfs_trans *trans, int fd)
 	hwfs_super_to_host(&super, sb);
 
 	trans->node_size = super.node_size;
-	trans->fs_tree.root = hwfs_trans_get_extent(trans, super.fs_tree_root);
-	if (!trans->fs_tree.root) {
+
+	if (hwfs_setup_tree(trans, &trans->fs_tree, super.fs_tree_root)) {
 		hwfs_trans_put_extent(trans, trans->super_block);
 		return -1;
 	}
 
-	trans->extent_tree.root =
-			hwfs_trans_get_extent(trans, super.extent_tree_root);
-	if (!trans->extent_tree.root) {
-		hwfs_trans_put_extent(trans, trans->fs_tree.root);
+	if (hwfs_setup_tree(trans, &trans->extent_tree, super.extent_tree_root)) {
+		hwfs_release_tree(trans, &trans->fs_tree);
 		hwfs_trans_put_extent(trans, trans->super_block);
 		return -1;
 	}
@@ -103,8 +127,7 @@ static void hwfs_trans_release_cache(struct hwfs_trans *trans)
 
 void hwfs_trans_release(struct hwfs_trans *trans)
 {
-	hwfs_trans_put_extent(trans, trans->extent_tree.root);
-	hwfs_trans_put_extent(trans, trans->fs_tree.root);
-	hwfs_trans_put_extent(trans, trans->super_block);
+	hwfs_release_tree(trans, &trans->extent_tree);
+	hwfs_release_tree(trans, &trans->fs_tree);
 	hwfs_trans_release_cache(trans);
 }
