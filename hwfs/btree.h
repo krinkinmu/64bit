@@ -77,6 +77,16 @@ void hwfs_node_set_item(struct hwfs_node *node, int pos,
 int hwfs_leaf_pos(struct hwfs_node *node, const struct hwfs_key *key);
 int hwfs_node_pos(struct hwfs_node *node, const struct hwfs_key *key);
 int hwfs_leaf_room(struct hwfs_node *node);
+
+int hwfs_lookup(struct hwfs_trans *trans, struct hwfs_tree *tree,
+			const struct hwfs_key *key,
+			struct hwfs_tree_iter *iter);
+int hwfs_next(struct hwfs_trans *trans, struct hwfs_tree *tree,
+			struct hwfs_tree_iter *iter);
+int hwfs_prev(struct hwfs_trans *trans, struct hwfs_tree *tree,
+			struct hwfs_tree_iter *iter);
+void hwfs_get_key(struct hwfs_tree_iter *iter, struct hwfs_key *key);
+
 void hwfs_leaf_insert(struct hwfs_node *node, const struct hwfs_key *key,
 				const void *data, int size);
 

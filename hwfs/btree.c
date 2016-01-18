@@ -343,6 +343,13 @@ int hwfs_node_pos(struct hwfs_node *node, const struct hwfs_key *key)
 	return i;
 }
 
+int hwfs_slot(struct hwfs_node *node, const struct hwfs_key *key)
+{
+	if (node->header.level == 0)
+		return hwfs_leaf_pos(node, key);
+	return hwfs_node_pos(node, key);
+}
+
 static int hwfs_leaf_room_end(struct hwfs_node *node)
 {
 	const int count = hwfs_node_items(node);
@@ -433,4 +440,119 @@ void hwfs_leaf_insert(struct hwfs_node *node, const struct hwfs_key *key,
 	++node->header.count;
 	hwfs_sync_node(node);
 	node->state = HWFS_NODE_DIRTY;
+}
+
+int hwfs_lookup(struct hwfs_trans *trans, struct hwfs_tree *tree,
+			const struct hwfs_key *key,
+			struct hwfs_tree_iter *iter)
+{
+	struct hwfs_node *node = tree->root;
+	int level = node->header.level;
+
+	iter->height = level;
+	iter->node[level] = node;
+	iter->slot[level] = hwfs_slot(node, key);
+
+	while (level) {
+		struct hwfs_item item;
+
+		hwfs_node_get_item(iter->node[level], iter->slot[level], &item);
+		node = hwfs_get_node(trans, tree, item.blocknr);
+
+		if (!node)
+			return -1;
+
+		level = node->header.level;
+		iter->node[level] = node;
+		iter->slot[level] = hwfs_slot(node, key);
+	}
+
+	return 0;
+}
+
+int hwfs_next(struct hwfs_trans *trans, struct hwfs_tree *tree,
+			struct hwfs_tree_iter *iter)
+{
+	const int height = iter->height;
+	int level = 0;
+
+	while (level <= height) {
+		const int count = hwfs_node_items(iter->node[level]);
+		const int slot = iter->slot[level];
+
+		if (slot < count - 1) {
+			++iter->slot[level];
+			return 0;
+		}
+
+		iter->node[level] = 0;
+		iter->slot[level] = 0;
+		++level;
+	}
+
+	if (level > height)
+		return -1;
+
+	while (level != 0) {
+		struct hwfs_node *node;
+		struct hwfs_item item;
+
+		hwfs_node_get_item(iter->node[level], iter->slot[level], &item);
+		node = hwfs_get_node(trans, tree, item.blocknr);
+
+		if (!node)
+			return -1;
+
+		level = node->header.level;
+		iter->node[level] = node;
+	}
+
+	return 0;
+}
+
+int hwfs_prev(struct hwfs_trans *trans, struct hwfs_tree *tree,
+			struct hwfs_tree_iter *iter)
+{
+	const int height = iter->height;
+	int level = 0;
+
+	while (level <= height) {
+		const int slot = iter->slot[level];
+
+		if (slot > 0) {
+			++iter->slot[level];
+			return 0;
+		}
+
+		iter->node[level] = 0;
+		++level;
+	}
+
+	if (level > height)
+		return -1;
+
+	while (level != 0) {
+		struct hwfs_node *node;
+		struct hwfs_item item;
+
+		hwfs_node_get_item(iter->node[level], iter->slot[level], &item);
+		node = hwfs_get_node(trans, tree, item.blocknr);
+
+		if (!node)
+			return -1;
+
+		level = node->header.level;
+		iter->node[level] = node;
+		iter->slot[level] = hwfs_node_items(node);
+	}
+
+	return 0;
+}
+
+void hwfs_get_key(struct hwfs_tree_iter *iter, struct hwfs_key *key)
+{
+	struct hwfs_value value;
+
+	hwfs_leaf_get_value(iter->node[0], iter->slot[0], &value);
+	*key = value.key;
 }
