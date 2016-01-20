@@ -261,6 +261,10 @@ struct hwfs_tree_header {
 	uint16_t blocks;
 };
 
+#define __HWFS_NODE_FANOUT(size) ((size) / sizeof(struct hwfs_disk_item))
+#define HWFS_NODE_FANOUT(size) \
+	__HWFS_NODE_FANOUT((size) - sizeof(struct hwfs_disk_tree_header))
+
 static inline void hwfs_tree_to_host(struct hwfs_tree_header *hhdr,
 			const struct hwfs_disk_tree_header *dhdr)
 {
