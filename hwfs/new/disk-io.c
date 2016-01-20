@@ -11,7 +11,7 @@
 static const size_t cache_threshold = 1000;
 
 
-static int read_at(int fd, size_t off, void *data, size_t size)
+static int read_at(int fd, off_t off, void *data, size_t size)
 {
 	char *buf = data;
 	size_t rd = 0;
@@ -39,7 +39,7 @@ static int read_at(int fd, size_t off, void *data, size_t size)
 	return 0;
 }
 
-static int write_at(int fd, size_t off, const void *data, size_t size)
+static int write_at(int fd, off_t off, const void *data, size_t size)
 {
 	const char *buf = data;
 	size_t wr = 0;
@@ -74,7 +74,7 @@ static int disk_write_block(struct disk_io *dio, struct disk_block *block)
 				block->data, dio->block_size);
 }
 
-void setup_disk_io(struct disk_io *dio, size_t block_size, int fd)
+void setup_disk_io(struct disk_io *dio, int block_size, int fd)
 {
 	memset(dio, 0, sizeof(*dio));
 	list_init(&dio->lru);
@@ -82,26 +82,41 @@ void setup_disk_io(struct disk_io *dio, size_t block_size, int fd)
 	dio->fd = fd;
 }
 
+static struct disk_block *disk_alloc_cached_block(struct disk_io *dio)
+{
+	if (list_empty(&dio->lru))
+		return 0;
+
+	struct list_head *ptr = list_first(&dio->lru);
+	struct disk_block *block = LIST_ENTRY(ptr, struct disk_block, link);
+
+	if (!disk_write_block(dio, block)) {
+		rb_erase(&block->node, &dio->blocks);
+		list_del(ptr);
+		return block;
+	}
+
+	return 0;
+}
+
 static struct disk_block *disk_alloc_block(struct disk_io *dio)
 {
-	if (dio->block_count >= cache_threshold && !list_empty(&dio->lru)) {
-		struct list_head *ptr = list_first(&dio->lru);
-		struct disk_block *block = LIST_ENTRY(ptr, struct disk_block,
-					link);
+	struct disk_block *block = 0;
 
-		if (!disk_write_block(dio, block)) {
-			rb_erase(&block->node, &dio->blocks);
-			list_del(ptr);
-			return block;
+	if (dio->block_count >= cache_threshold)
+		block = disk_alloc_cached_block(dio);
+
+	while (!block) {
+		block = malloc(sizeof(*block) + dio->block_size);
+
+		if (block) {
+			block->data = block + 1;
+			++dio->block_count;
+		} else {
+			block = disk_alloc_cached_block(dio);
 		}
 	}
 
-	struct disk_block *block = malloc(sizeof(*block) + dio->block_size);
-
-	if (block) {
-		block->data = block + 1;
-		++dio->block_count;
-	}
 	return block;
 }
 
@@ -121,8 +136,8 @@ static void __release_blocks(struct disk_io *dio, struct rb_node *node)
 		node = node->right;
 
 		if (block->links)
-			fprintf(stderr, "Someone stil holds reference to %zu\n",
-						block->blocknr);
+			fprintf(stderr, "Someone still holds reference to %llu\n",
+					(unsigned long long) block->blocknr);
 
 		disk_write_block(dio, block);
 		disk_drop_block(dio, block);
@@ -134,7 +149,7 @@ void release_disk_io(struct disk_io *dio)
 	__release_blocks(dio, dio->blocks.root);
 }
 
-struct disk_block *disk_get_block(struct disk_io *dio, size_t blocknr)
+struct disk_block *disk_get_block(struct disk_io *dio, uint64_t blocknr)
 {
 	struct rb_node **plink = &dio->blocks.root;
 	struct rb_node *parent = 0;
@@ -157,9 +172,6 @@ struct disk_block *disk_get_block(struct disk_io *dio, size_t blocknr)
 	}
 
 	struct disk_block *block = disk_alloc_block(dio);
-
-	if (!block)
-		return 0;
 
 	block->blocknr = blocknr;
 	block->data = block + 1;
