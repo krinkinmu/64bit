@@ -3,7 +3,7 @@ CC ?= gcc
 CFLAGS := -g -m64 -Ofast -Wall -Wextra -Werror -pedantic -std=c99 -D_BSD_SOURCE
 LFLAGS :=
 
-SRC := mkfs.c disk-io.c list.c rbtree.c
+SRC := mkfs.c disk-io.c list.c rbtree.c btree.c
 OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 
