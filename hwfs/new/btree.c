@@ -140,7 +140,7 @@ static struct disk_block *btree_alloc_node(struct disk_io *dio,
 	if (fs->next == fs->count)
 		return 0;
 
-	struct disk_block *block = disk_get_block(dio, ++fs->next);
+	struct disk_block *block = disk_get_block(dio, fs->next);
 
 	if (!block)
 		return 0;
@@ -149,6 +149,7 @@ static struct disk_block *btree_alloc_node(struct disk_io *dio,
 
 	memset(block->data, 0, dio->block_size);
 	hdr->blocks = htole16(1);
+	++fs->next;
 	return block;
 }
 
@@ -194,7 +195,6 @@ static int btree_grow(struct disk_io *dio, struct free_space *fs,
 	nhdr->item[0].blocknr = htole64(new_root->blocknr);
 	disk_put_block(dio, tree->root);
 	tree->root = new_root;
-	++fs->next;
 	return 0;
 }
 
@@ -224,7 +224,6 @@ static int btree_split_node(struct disk_io *dio, struct free_space *fs,
 	phdr->hdr.count = htole16(pcount + 1);
 	nhdr->hdr.count = htole16(count - split);
 	hdr->hdr.count = htole16(split);
-	++fs->next;
 
 	return 0;
 }
