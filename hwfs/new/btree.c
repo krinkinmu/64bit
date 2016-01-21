@@ -170,10 +170,6 @@ static int btree_grow(struct disk_io *dio, struct free_space *fs,
 			struct btree *tree)
 {
 	struct disk_block *new_root = btree_alloc_node(dio, fs);
-
-	if (!new_root)
-		return -1;
-
 	struct hwfs_disk_tree_header *ohdr = tree->root->data;
 	struct hwfs_disk_node_header *nhdr = new_root->data;
 	const int level = le16toh(ohdr->level);
@@ -195,6 +191,7 @@ static int btree_grow(struct disk_io *dio, struct free_space *fs,
 	nhdr->item[0].blocknr = htole64(new_root->blocknr);
 	disk_put_block(dio, tree->root);
 	tree->root = new_root;
+
 	return 0;
 }
 
@@ -209,10 +206,6 @@ static int btree_split_node(struct disk_io *dio, struct free_space *fs,
 	const int split = count / 2;
 
 	struct disk_block *next = btree_alloc_node(dio, fs);
-
-	if (!next)
-		return -1;
-
 	struct hwfs_disk_node_header *nhdr = next->data;
 
 	memcpy(nhdr->item, hdr->item + split,
@@ -228,52 +221,31 @@ static int btree_split_node(struct disk_io *dio, struct free_space *fs,
 	return 0;
 }
 
-static int btree_split_leaf(struct disk_io *dio, struct free_space *fs,
-			struct disk_block *parent, int slot,
-			struct disk_block *block)
+static void btree_node_insert_ptr(struct disk_block *block, int slot,
+			const struct hwfs_key *key, uint64_t blocknr)
 {
-	(void) dio;
-	(void) fs;
-	(void) parent;
-	(void) slot;
-	(void) block;
-
-	return -1;
-}
-
-static int btree_leaf_insert(struct disk_io *dio, struct free_space *fs,
-			struct disk_block *parent, int slot,
-			struct disk_block *block, const struct hwfs_key *key,
-			const void *data, size_t size)
-{
-	if (!btree_enough_room(dio, block, size)) {
-		struct hwfs_disk_node_header *hdr = parent->data;
-		struct hwfs_disk_item *item = hdr->item;
-
-		if (btree_split_leaf(dio, fs, parent, slot, block)) {
-			disk_put_block(dio, parent);
-			disk_put_block(dio, block);
-			return -1;
-		}
-		
-		if (hwfs_key_cmp(key, item + slot + 1) > 0) {
-			const uint64_t blocknr = le64toh(item[++slot].blocknr);
-
-			disk_put_block(dio, block);
-			block = disk_get_block(dio, blocknr);
-
-			if (!block) {
-				disk_put_block(dio, parent);
-				return -1;
-			}
-		}
-	}
-
-	struct hwfs_disk_leaf_header *hdr = block->data;
-	struct hwfs_disk_value *value = hdr->value;
+	struct hwfs_disk_node_header *hdr = block->data;
+	struct hwfs_disk_item *item = hdr->item;
 	const int count = le16toh(hdr->hdr.count);
 
-	slot = btree_lower_bound(block, key);
+	memmove(item + slot + 1, item + slot, sizeof(*item) * count - slot);
+	hwfs_key_to_disk(&item[slot].key, key);
+	item[slot].blocknr = htole64(blocknr);
+}
+
+static int btree_leaf_insert_nooverflow(struct disk_io *dio,
+			struct disk_block *block, const struct hwfs_key *key,
+			const void *data, int size)
+{
+	struct hwfs_disk_leaf_header *hdr = block->data;
+	struct hwfs_disk_value *value = hdr->value;
+
+	if (btree_leaf_room(dio, block) < (int)sizeof(*value) + size)
+		return -1;
+
+	const int slot = btree_lower_bound(block, key);
+	const int count = le16toh(hdr->hdr.count);
+
 	hdr->hdr.count = htole16(count + 1);
 
 	if (slot != count) {
@@ -282,9 +254,10 @@ static int btree_leaf_insert(struct disk_io *dio, struct free_space *fs,
 					+ le16toh(value[slot].size);
 
 		memmove((char *)block->data + data_begin - size,
-			(char *)block->data + data_begin, data_end - data_begin);
+			(char *)block->data + data_begin,
+			data_end - data_begin);
 		memmove(value + slot + 1, value + slot,
-				(count - slot) * sizeof(*value));
+			(count - slot) * sizeof(*value));
 
 		for (int i = slot + 1; i != count + 1; ++i) {
 			const int offset = le16toh(value[i].offset);
@@ -306,10 +279,76 @@ static int btree_leaf_insert(struct disk_io *dio, struct free_space *fs,
 		memcpy((char *)block->data + le16toh(value[slot].offset),
 			data, size);
 
-	disk_put_block(dio, parent);
 	disk_put_block(dio, block);
 
 	return 0;
+}
+
+static int btree_leaf_insert_overflow(struct disk_io *dio,
+			struct free_space *fs,
+			struct disk_block *parent, int parent_slot,
+			struct disk_block *block, const struct hwfs_key *key,
+			const void *data, int size)
+{
+	struct hwfs_disk_node_header *phdr = parent->data;
+	struct hwfs_disk_item *item = phdr->item;
+	struct hwfs_disk_leaf_header *hdr = block->data;
+	struct hwfs_disk_value *value = hdr->value;
+	const int count = le16toh(hdr->hdr.count);
+	const int slot = btree_lower_bound(block, key);
+
+	struct disk_block *new_block = btree_alloc_node(dio, fs);
+
+	btree_leaf_insert_nooverflow(dio, new_block, key, data, size);
+
+	if (slot == 0) {
+		struct hwfs_key next_key;
+
+		item[parent_slot].blocknr = htole64(new_block->blocknr);
+		hwfs_key_to_host(&next_key, &value[0].key);
+		btree_node_insert_ptr(parent, parent_slot + 1, &next_key,
+					block->blocknr);
+	} else if (slot == count) {
+		btree_node_insert_ptr(parent, parent_slot + 1, key,
+					new_block->blocknr);
+	} else {
+		struct disk_block *high = btree_alloc_node(dio, fs);
+		struct hwfs_value copy;
+
+		for (int i = count; i != slot; --i) {
+			hwfs_value_to_host(&copy, value + i - 1);
+			btree_leaf_insert_nooverflow(dio, high, &copy.key,
+				(const char *)block->data + copy.offset,
+				copy.size);
+		}
+		
+		hdr->hdr.count = htole16(slot);
+		btree_node_insert_ptr(parent, parent_slot + 1, key,
+					new_block->blocknr);
+		btree_node_insert_ptr(parent, parent_slot + 2, &copy.key,
+					high->blocknr);
+		disk_put_block(dio, high);
+	}
+
+	disk_put_block(dio, block);
+	disk_put_block(dio, new_block);
+	disk_put_block(dio, parent);
+
+	return 0;
+}
+
+static int btree_leaf_insert(struct disk_io *dio, struct free_space *fs,
+			struct disk_block *parent, int parent_slot,
+			struct disk_block *block, const struct hwfs_key *key,
+			const void *data, size_t size)
+{
+	if (!btree_enough_room(dio, block, size))
+		return btree_leaf_insert_overflow(dio, fs,
+					parent, parent_slot,
+					block, key, data, size);
+
+	disk_put_block(dio, parent);
+	return btree_leaf_insert_nooverflow(dio, block, key, data, size);
 }
 
 int btree_insert(struct disk_io *dio, struct free_space *fs,

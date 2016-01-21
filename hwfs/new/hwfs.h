@@ -24,9 +24,9 @@
 
 /* pretty much btrfs key */
 struct hwfs_disk_key {
-	uint64_t id;     // 0 for HWFS_EXTENT
+	uint64_t id;     // or offset for HWFS_EXTENT
 	uint8_t type;
-	uint64_t offset; // or hash for HWFS_ENTRY
+	uint64_t offset; // or hash for HWFS_ENTRY, or size for HWFS_EXTENT
 } __attribute__((packed));
 
 struct hwfs_key {
@@ -186,26 +186,22 @@ static inline void hwfs_data_to_disk(struct hwfs_disk_data *ddata,
 }
 
 struct hwfs_disk_extent {
-	uint64_t size;
 	uint64_t free;
 } __attribute__((packed));
 
 struct hwfs_extent {
-	uint64_t size;
 	uint64_t free;
 };
 
 static inline void hwfs_extent_to_host(struct hwfs_extent *hext,
 			const struct hwfs_disk_extent *dext)
 {
-	hext->size = le64toh(dext->size);
 	hext->free = le64toh(dext->free);
 }
 
 static inline void hwfs_extent_to_disk(struct hwfs_disk_extent *dext,
 			const struct hwfs_extent *hext)
 {
-	dext->size = htole64(hext->size);
 	dext->free = htole64(hext->free);
 }
 
