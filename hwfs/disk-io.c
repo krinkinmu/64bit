@@ -1,14 +1,17 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 
 #include "disk-io.h"
 
-static int read_at(int fd, size_t off, void *data, size_t size)
+
+static const size_t cache_threshold = 1000;
+
+
+static int read_at(int fd, off_t off, void *data, size_t size)
 {
 	char *buf = data;
 	size_t rd = 0;
@@ -36,7 +39,7 @@ static int read_at(int fd, size_t off, void *data, size_t size)
 	return 0;
 }
 
-static int write_at(int fd, size_t off, const void *data, size_t size)
+static int write_at(int fd, off_t off, const void *data, size_t size)
 {
 	const char *buf = data;
 	size_t wr = 0;
@@ -59,86 +62,143 @@ static int write_at(int fd, size_t off, const void *data, size_t size)
 	return 0;
 }
 
-struct hwfs_io_extent *hwfs_create_io_extent(size_t size)
+static int disk_read_block(struct disk_io *dio, struct disk_block *block)
 {
-	struct hwfs_io_extent *ext = malloc(sizeof(*ext) + size);
-
-	if (ext) {
-		memset(ext, 0, sizeof(*ext) + size);
-		ext->state = HWFS_EXTENT_NEW;
-		ext->size = size;
-		ext->data = ext + 1;
-		ext->links = 1;
-	}
-	return ext;
+	return read_at(dio->fd, dio->block_size * block->blocknr,
+				block->data, dio->block_size);
 }
 
-void hwfs_destroy_io_extent(struct hwfs_io_extent *ext)
+static int disk_write_block(struct disk_io *dio, struct disk_block *block)
 {
-	free(ext);
+	return write_at(dio->fd, dio->block_size * block->blocknr,
+				block->data, dio->block_size);
 }
 
-struct hwfs_io_extent *hwfs_get_io_extent(struct hwfs_io_extent *extent)
+void setup_disk_io(struct disk_io *dio, int block_size, int fd)
 {
-	++extent->links;
-	return extent;
+	memset(dio, 0, sizeof(*dio));
+	list_init(&dio->lru);
+	dio->block_size = block_size;
+	dio->fd = fd;
 }
 
-void hwfs_put_io_extent(struct hwfs_io_extent *extent)
+static struct disk_block *disk_alloc_cached_block(struct disk_io *dio)
 {
-	if (--extent->links == 0)
-		hwfs_destroy_io_extent(extent);
-}
-
-int hwfs_sync_io_extent(int fd, struct hwfs_io_extent *extent)
-{
-	if (extent->state == HWFS_EXTENT_UPTODATE)
+	if (list_empty(&dio->lru))
 		return 0;
 
-	const size_t offset = extent->offset;
-	const size_t size = extent->size;
+	struct list_head *ptr = list_first(&dio->lru);
+	struct disk_block *block = LIST_ENTRY(ptr, struct disk_block, link);
 
-	if (extent->state == HWFS_EXTENT_DIRTY) {
-		if (write_at(fd, offset, extent->data, size))
-			return -1;
-	} else {
-		if (read_at(fd, offset, extent->data, size))
-			return -1;
+	if (!disk_write_block(dio, block)) {
+		rb_erase(&block->node, &dio->blocks);
+		list_del(ptr);
+		return block;
 	}
 
-	extent->state = HWFS_EXTENT_UPTODATE;
 	return 0;
 }
 
-int hwfs_write_io_extent(struct hwfs_io_extent *extent, size_t offset,
-			const void *data, size_t size)
+static struct disk_block *disk_alloc_block(struct disk_io *dio)
 {
-	if (offset + size > extent->size)
-		return -1;
+	struct disk_block *block = 0;
 
-	memcpy((char *)extent->data + offset, data, size);
-	extent->state = HWFS_EXTENT_DIRTY;
-	return 0;
+	if (dio->block_count >= cache_threshold)
+		block = disk_alloc_cached_block(dio);
+
+	while (!block) {
+		block = malloc(sizeof(*block) + dio->block_size);
+
+		if (block) {
+			block->data = block + 1;
+			++dio->block_count;
+		} else {
+			block = disk_alloc_cached_block(dio);
+		}
+	}
+
+	return block;
 }
 
-int hwfs_read_io_extent(struct hwfs_io_extent *extent, size_t offset,
-			void *data, size_t size)
+static void disk_drop_block(struct disk_io *dio, struct disk_block *block)
 {
-	if (offset + size > extent->size)
-		return -1;
-
-	memcpy(data, (const char *)extent->data + offset, size);
-	return 0;
+	free(block);
+	--dio->block_count;
 }
 
-int hwfs_memset_io_extent(struct hwfs_io_extent *extent, size_t offset,
-			int byte, size_t size)
+static void __release_blocks(struct disk_io *dio, struct rb_node *node)
 {
-	if (offset + size > extent->size)
-		return -1;
+	while (node) {
+		struct disk_block *block = TREE_ENTRY(node, struct disk_block,
+					node);
 
-	memset((char *)extent->data + offset, byte, size);
-	extent->state = HWFS_EXTENT_DIRTY;
-	return 0;
+		__release_blocks(dio, node->left);
+		node = node->right;
+
+		if (block->links)
+			fprintf(stderr, "Someone still holds reference to %llu\n",
+					(unsigned long long) block->blocknr);
+
+		disk_write_block(dio, block);
+		disk_drop_block(dio, block);
+	}
 }
 
+void release_disk_io(struct disk_io *dio)
+{
+	__release_blocks(dio, dio->blocks.root);
+}
+
+struct disk_block *disk_get_block(struct disk_io *dio, uint64_t blocknr)
+{
+	struct rb_node **plink = &dio->blocks.root;
+	struct rb_node *parent = 0;
+
+	while (*plink) {
+		struct disk_block *block = TREE_ENTRY(*plink, struct disk_block,
+					node);
+
+		if (block->blocknr == blocknr) {
+			if (++block->links == 1)
+				list_del(&block->link);
+			return block;
+		}
+
+		parent = *plink;
+		if (block->blocknr < blocknr)
+			plink = &parent->right;
+		else
+			plink = &parent->left;
+	}
+
+	struct disk_block *block = disk_alloc_block(dio);
+
+	block->blocknr = blocknr;
+	block->data = block + 1;
+	block->links = 1;
+
+	if (disk_read_block(dio, block)) {
+		disk_drop_block(dio, block);
+		return 0;
+	}
+
+	rb_link(&block->node, parent, plink);
+	rb_insert(&block->node, &dio->blocks);
+	return block;
+}
+
+void disk_put_block(struct disk_io *dio, struct disk_block *block)
+{
+	if (!block)
+		return;
+
+	if (--block->links == 0) {
+		if (dio->block_count > cache_threshold &&
+				!disk_write_block(dio, block)) {
+			rb_erase(&block->node, &dio->blocks);
+			disk_drop_block(dio, block);
+		} else {
+			list_add_tail(&block->link, &dio->lru);
+		}
+	}
+}

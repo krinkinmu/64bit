@@ -14,6 +14,7 @@ struct rb_tree {
 	struct rb_node *root;
 };
 
+#undef CONTAINER_OF
 #define CONTAINER_OF(ptr, type, member) \
         (type *)( (char *)(ptr) - offsetof(type, member) )
 #define TREE_ENTRY(ptr, type, member) CONTAINER_OF(ptr, type, member)

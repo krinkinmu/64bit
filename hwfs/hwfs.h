@@ -24,9 +24,9 @@
 
 /* pretty much btrfs key */
 struct hwfs_disk_key {
-	uint64_t id;     // 0 for HWFS_EXTENT
+	uint64_t id;     // or offset for HWFS_EXTENT
 	uint8_t type;
-	uint64_t offset; // or hash for HWFS_ENTRY
+	uint64_t offset; // or hash for HWFS_ENTRY, or size for HWFS_EXTENT
 } __attribute__((packed));
 
 struct hwfs_key {
@@ -186,26 +186,22 @@ static inline void hwfs_data_to_disk(struct hwfs_disk_data *ddata,
 }
 
 struct hwfs_disk_extent {
-	uint64_t size;
 	uint64_t free;
 } __attribute__((packed));
 
 struct hwfs_extent {
-	uint64_t size;
 	uint64_t free;
 };
 
 static inline void hwfs_extent_to_host(struct hwfs_extent *hext,
 			const struct hwfs_disk_extent *dext)
 {
-	hext->size = le64toh(dext->size);
 	hext->free = le64toh(dext->free);
 }
 
 static inline void hwfs_extent_to_disk(struct hwfs_disk_extent *dext,
 			const struct hwfs_extent *hext)
 {
-	dext->size = htole64(hext->size);
 	dext->free = htole64(hext->free);
 }
 
@@ -215,7 +211,7 @@ struct hwfs_disk_super_block {
 	uint64_t extent_tree_root;
 	uint64_t root_node_id;
 	uint64_t next_node_id;
-	uint16_t node_size;        // fanout
+	uint16_t block_size;        // fanout
 } __attribute__((packed));
 
 struct hwfs_super_block {
@@ -224,7 +220,7 @@ struct hwfs_super_block {
 	uint64_t extent_tree_root;
 	uint64_t root_node_id;
 	uint64_t next_node_id;
-	uint16_t node_size;
+	uint16_t block_size;
 };
 
 static inline void hwfs_super_to_host(struct hwfs_super_block *hsuper,
@@ -235,7 +231,7 @@ static inline void hwfs_super_to_host(struct hwfs_super_block *hsuper,
 	hsuper->extent_tree_root = le64toh(dsuper->extent_tree_root);
 	hsuper->root_node_id = le64toh(dsuper->root_node_id);
 	hsuper->next_node_id = le64toh(dsuper->next_node_id);
-	hsuper->node_size = le16toh(dsuper->node_size);
+	hsuper->block_size = le16toh(dsuper->block_size);
 }
 
 static inline void hwfs_super_to_disk(struct hwfs_disk_super_block *dsuper,
@@ -246,7 +242,7 @@ static inline void hwfs_super_to_disk(struct hwfs_disk_super_block *dsuper,
 	dsuper->extent_tree_root = htole64(hsuper->extent_tree_root);
 	dsuper->root_node_id = htole64(hsuper->root_node_id);
 	dsuper->next_node_id = htole64(hsuper->next_node_id);
-	dsuper->node_size = htole16(hsuper->node_size);
+	dsuper->block_size = htole16(hsuper->block_size);
 }
 
 struct hwfs_disk_tree_header {
@@ -260,6 +256,10 @@ struct hwfs_tree_header {
 	uint16_t count;
 	uint16_t blocks;
 };
+
+#define __HWFS_NODE_FANOUT(size) ((size) / sizeof(struct hwfs_disk_item))
+#define HWFS_NODE_FANOUT(size) \
+	__HWFS_NODE_FANOUT((size) - sizeof(struct hwfs_disk_tree_header))
 
 static inline void hwfs_tree_to_host(struct hwfs_tree_header *hhdr,
 			const struct hwfs_disk_tree_header *dhdr)
