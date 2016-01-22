@@ -40,13 +40,9 @@ gdt_ptr64:
 	.word (gdt_ptr - gdt - 1)
 	.quad (gdt + VIRTUAL_BASE) 
 
-	.global cmdline, mmap, mmap_len
-cmdline:
-	.quad 0
-mmap:
-	.quad 0
-mmap_len:
-	.quad 0
+	.global mboot_info
+mboot_info:
+	.long 0x13131313
 
 	.space 0x100
 bootstrap_stack_top:
@@ -63,27 +59,7 @@ bootstrap_stack_top:
 	jmp fail
 
 1:
-	movl (%ebx), %edi
-	test $(1 << 6), %edi
-	jne 1f
-
-	pushl $no_memory_map
-	jmp fail
-
-1:
-	movl 44(%ebx), %eax
-	movl %eax, mmap_len
-
-	movl 48(%ebx), %eax
-	movl %eax, mmap
-
-	test $(1 << 2), %edi
-	je 1f
-
-	movl 16(%ebx), %eax
-	movl %eax, cmdline
-
-1:
+	movl %ebx, mboot_info
 	call check_long_mode
 	call setup_identity_mapping
 
@@ -149,9 +125,14 @@ setup_identity_mapping:
 	movl %eax, 8(%edx)
 	movl %eax, 4088(%edx)
 
+	addl $PAGE_SIZE, %eax
+	movl %eax, 16(%edx)
+	addl $PAGE_SIZE, %eax
+	movl %eax, 24(%edx)
+
 	addl $PAGE_SIZE, %edx
 	movl $(PTE_LARGE | PTE_PRESENT | PTE_WRITE), %eax
-	movl $1024, %ecx
+	movl $2048, %ecx
 1:
 	movl %eax, (%edx)
 	addl $0x200000, %eax
@@ -250,11 +231,6 @@ start64:
 
 	movabsq $stack_top, %rax
 	movq %rax, %rsp
-
-	movabsq $bss_virt_begin, %rax
-	movq $0, (%rax)
-	addq $PAGE_SIZE, %rax;
-	movq $0, (%rax);
 
 	cld
 	movabsq $main, %rax
