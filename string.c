@@ -34,6 +34,20 @@ void *memset(void *dst, int value, size_t size)
 	return dst;
 }
 
+int memcmp(const void *lptr, const void *rptr, size_t size)
+{
+	const char *l = lptr;
+	const char *r = rptr;
+
+	while (size && *l == *r) {
+		++l;
+		++r;
+		--size;
+	}
+
+	return size ? *l - *r : 0;
+}
+
 size_t strlen(const char *str)
 {
 	const char *pos = str;
