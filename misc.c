@@ -25,6 +25,11 @@ struct mboot_mmap_entry {
 
 static void setup_mmap(struct multiboot_info *info)
 {
+	if ((info->flags & (1ul << 6)) == 0) {
+		DBG_ERR("mmap info isn't available");
+		while (1);
+	}
+
 	const char *begin = (const char *)((uintptr_t)info->mmap_addr);
 	const char *end = begin + info->mmap_length;
 
