@@ -6,6 +6,7 @@
 #include "error.h"
 #include "ramfs.h"
 #include "time.h"
+#include "misc.h"
 #include "ide.h"
 #include "vga.h"
 #include "vfs.h"
@@ -23,6 +24,7 @@ static void start(void *dummy)
 void main(void)
 {
 	setup_vga();
+	setup_misc();
 	setup_ints();
 	setup_memory();
 	setup_buddy();

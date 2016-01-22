@@ -5,6 +5,7 @@
 #include "memory.h"
 #include "balloc.h"
 #include "stdio.h"
+#include "misc.h"
 
 #define MAX_MEMORY_NODES (1 << PAGE_NODE_BITS)
 
@@ -143,59 +144,41 @@ static void memory_free_region(unsigned long long addr, unsigned long long size)
 	}
 }
 
-
-static const uint32_t MMAP_AVAILABLE = 1;
-
-struct mmap_entry {
-	uint32_t size;
-	uint64_t addr;
-	uint64_t length;
-	uint32_t type;
-} __attribute__((packed));
-
-
 void setup_memory(void)
 {
-	extern const phys_t mmap;
-	extern const unsigned long mmap_len;
+	for (int i = 0; i != mmap_count; ++i) {
+		const struct mmap_entry *entry = mmap + i;
 
-	phys_t mmap_paddr = *((unsigned long *)kernel_virt((phys_t)&mmap));
-	unsigned long len = *((unsigned long *)kernel_virt((phys_t)&mmap_len));
-
-	const char *begin = kernel_virt(mmap_paddr);
-	const char *end = begin + len;
-
-	while (begin < end) {
-		const struct mmap_entry *ptr =
-					(const struct mmap_entry *)begin;
-
-		begin += ptr->size + sizeof(ptr->size);
-		balloc_add_region(ptr->addr, ptr->length);
-		printf("memory range: %#llx-%#llx type %u\n",
-			(unsigned long long)ptr->addr,
-			(unsigned long long)ptr->addr + ptr->length - 1,
-			(unsigned)ptr->type);
-	}
-
-	begin = kernel_virt(mmap_paddr);
-	while (begin < end) {
-		const struct mmap_entry *ptr =
-					(const struct mmap_entry *)begin;
-
-		begin += ptr->size + sizeof(ptr->size);
-		if (ptr->type != MMAP_AVAILABLE)
-			balloc_reserve_region(ptr->addr, ptr->length);
+		balloc_add_region(entry->addr, entry->length);
+		printf("memory range: %#llx-%#llx type %lu\n",
+			entry->addr, entry->addr + entry->length - 1,
+			entry->type);
 	}
 
 	extern char text_virt_begin[];
 	extern char bss_virt_end[];
-
 	const phys_t kernel_begin = (phys_t)kernel_phys(text_virt_begin);
 	const phys_t kernel_end = (phys_t)kernel_phys(bss_virt_end);
+
+	balloc_add_region(kernel_begin, kernel_end - kernel_begin);
+	balloc_add_region(initrd_begin, initrd_end - initrd_begin);
+
+	for (int i = 0; i != mmap_count; ++i) {
+		const struct mmap_entry *entry = mmap + i;
+
+		if (entry->type != MMAP_AVAILABLE)
+			balloc_reserve_region(entry->addr, entry->length);
+	}
+
 	printf("reserve memory range: %#llx-%#llx for kernel\n",
 			(unsigned long long) kernel_begin,
 			(unsigned long long) kernel_end - 1);
 	balloc_reserve_region(kernel_begin, kernel_end - kernel_begin);
+
+	printf("reserve memory range: %#llx-%#llx for initrd\n",
+			(unsigned long long) initrd_begin,
+			(unsigned long long) initrd_end - 1);
+	balloc_reserve_region(initrd_begin, initrd_end - initrd_begin);
 }
 
 void setup_buddy(void)
