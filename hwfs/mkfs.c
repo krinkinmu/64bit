@@ -152,7 +152,7 @@ static int bootstrap(struct disk_io *dio, long disk_size)
 
 	extent.free = 0;
 
-	key.id = 0;
+	key.id = 1;
 	key.type = HWFS_EXTENT;
 	key.offset = 1;
 
@@ -162,7 +162,7 @@ static int bootstrap(struct disk_io *dio, long disk_size)
 		return -1;
 	}
 
-	key.id = 1;
+	key.id = fs.next;
 	key.type = HWFS_EXTENT;
 	key.offset = fs.next - 1;
 
@@ -172,7 +172,7 @@ static int bootstrap(struct disk_io *dio, long disk_size)
 		return -1;
 	}
 
-	key.id = disk_size;
+	key.id = disk_size + 1;
 	key.type = HWFS_EXTENT;
 	key.offset = 1;
 

@@ -24,7 +24,7 @@
 
 /* pretty much btrfs key */
 struct hwfs_disk_key {
-	uint64_t id;     // or offset for HWFS_EXTENT
+	uint64_t id;     // or sector after end for HWFS_EXTENT
 	uint8_t type;
 	uint64_t offset; // or hash for HWFS_ENTRY, or size for HWFS_EXTENT
 } __attribute__((packed));
