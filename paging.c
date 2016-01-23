@@ -284,12 +284,15 @@ static void setup_kmap(void)
 
 void setup_paging(void)
 {
+	const phys_t opaddr = load_pml4();
+	pte_t *opt = kernel_virt(opaddr);
+
 	const phys_t paddr = alloc_page_table();
 	pte_t *pt = kernel_virt(paddr);
 
+	pt[0] = opt[0]; // preserve 4GB identity mapping for initramfs
 	pml4_map(pt, VIRTUAL_BASE, PHYSICAL_BASE,
 				KERNEL_PAGES + KMAP_PAGES, PTE_KERNEL);
 	store_pml4(paddr);
-
 	setup_kmap();
 }
