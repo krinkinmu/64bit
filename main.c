@@ -1,4 +1,5 @@
 #include "kmem_cache.h"
+#include "initramfs.h"
 #include "interrupt.h"
 #include "threads.h"
 #include "memory.h"
@@ -16,7 +17,7 @@ static void start(void *dummy)
 	(void) dummy;
 
 	setup_ramfs();
-	setup_ide();
+	setup_initramfs();
 
 	while (1);
 }
@@ -33,6 +34,7 @@ void main(void)
 	setup_time();
 	setup_threading();
 	setup_vfs();
+	// setup_ide(); // we aren't going to use it in near future
 
 	/* start first real kernel thread */
 	struct page *stack = alloc_pages(1, NT_LOW);
