@@ -107,7 +107,9 @@ static void __memory_free_region(unsigned long long begin,
 
 	struct memory_node *node = pfn_node(b);
 
-	for (pfn_t pfn = b - node->begin_pfn; pfn != pages;) {
+	const pfn_t node_pfn = b - node->begin_pfn;
+
+	for (pfn_t pfn = node_pfn; pfn != node_pfn + pages;) {
 		struct page *page = node_page(node, pfn);
 		int order = pfn_max_order(pfn);
 
