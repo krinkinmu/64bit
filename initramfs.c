@@ -5,6 +5,10 @@
 #include "misc.h"
 #include "vfs.h"
 
+#include <stdbool.h>
+#include <stddef.h>
+
+
 #define S_IFMT  0xF000
 #define S_IFDIR 0x4000
 #define S_IFREG 0x8000
@@ -29,6 +33,7 @@ struct cpio_header {
 	char chksum[8];
 } __attribute__((packed));
 
+
 static unsigned long parse_hex(const char *data)
 {
 	static char buffer[9];
@@ -38,9 +43,52 @@ static unsigned long parse_hex(const char *data)
 	return strtoul(buffer, 0, 16);
 }
 
+static void create_dir(const char *name)
+{
+	const int rc = vfs_mkdir(name);
+
+	if (rc)
+		DBG_ERR("Failed to create %s with error %s",
+					name, errstr(rc));
+}
+
+static int write_file(struct fs_file *file, const void *data, size_t size)
+{
+	const char *buf = data;
+	size_t wr = 0;
+
+	while (wr != size) {
+		const int rc = vfs_write(file, buf + wr, size - wr);
+
+		if (rc < 0)
+			return rc;
+		wr += rc;
+	}
+
+	return 0;
+}
+
+static void create_file(const char *name, const void *data, size_t size)
+{
+	struct fs_file file;
+	int rc = vfs_create(name, &file);
+
+	if (!rc) {
+		rc = write_file(&file, data, size);
+		if (rc)
+			DBG_ERR("Failed to write file %s with error %s",
+						name, errstr(rc));
+		vfs_release(&file);
+	} else {
+		DBG_ERR("Failed to create file %s with error %s",
+					name, errstr(rc));
+	}
+}
+
 static void parse_cpio(const char *data, unsigned long size)
 {
 	unsigned long pos = 0;
+	bool root = true;
 
 	while (pos < size && size - pos >= sizeof(struct cpio_header)) {
 		const struct cpio_header *hdr = (const void *)(data + pos);
@@ -59,15 +107,18 @@ static void parse_cpio(const char *data, unsigned long size)
 			break;
 
 		const char *filedata = data + pos;
-		pos = ALIGN(pos + filesize, 4);
-
-		(void) filedata;
+		pos += filesize;
 
 		if (S_ISDIR(mode)) {
-			DBG_INFO("initramfs dir %s", filename);
+			if (!root)
+				create_dir(filename);
+			else
+				root = false;
 		} else if (S_ISREG(mode)) {
-			DBG_INFO("initramfs file %s", filename);
+			if (pos <= size)
+				create_file(filename, filedata, filesize);
 		}
+		pos = ALIGN(pos, 4);
 	}
 }
 
