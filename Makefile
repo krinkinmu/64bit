@@ -26,7 +26,7 @@ entry.S: genint.py
 	python $^ > $@
 
 %.o: %.S
-	$(CC) -g -MMD -c $< -o $@
+	$(CC) -D__ASM_FILE__ -g -MMD -c $< -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -MMD -c $< -o $@
