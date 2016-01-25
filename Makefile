@@ -9,12 +9,13 @@ SRC := main.c list.c console.c vga.c string.c stdio.c ctype.c stdlib.c \
 	vsinkprintf.c balloc.c memory.c interrupt.c paging.c i8259a.c \
 	kmem_cache.c threads.c time.c scheduler.c vfs.c rbtree.c ramfs.c \
 	error.c ramfs_smoke_test.c locking.c ide.c ide_smoke_test.c misc.c \
-	initramfs.c
+	initramfs.c serial.c
 OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 
 ASM := bootstrap.S videomem.S entry.S switch.S
 AOBJ:= $(ASM:.S=.o)
+ADEP:= $(ASM:.S=.d)
 
 all: kernel
 
@@ -25,13 +26,14 @@ entry.S: genint.py
 	python $^ > $@
 
 %.o: %.S
-	$(CC) -g -MMD -c $^ -o $@
+	$(CC) -g -MMD -c $< -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -MMD -c $< -o $@
 
 -include $(DEP)
+-include $(ADEP)
 
 .PHONY: clean
 clean:
-	rm -f kernel $(AOBJ) $(OBJ) $(DEP) entry.S
+	rm -f kernel $(AOBJ) $(OBJ) $(DEP) $(ADEP) entry.S
