@@ -1,39 +1,26 @@
-Why we want to enter long mode from legacy multiboot?
+Initially it was just an example how to enter long mode from multiboot
+compatible bootloader, but it evolved in some kind of educational OS.
 
-1. multiboot2 doesn't support long mode either, so there is no big advantage,
-   except loading 64 bit elf image
-2. qemu doesn't support multiboot2 (*as far as i know)
-3. even if qemu does support multiboot2, grub2 doesn't support multiboot2
-   properly (*as far as i know)
+Current status:
+  - we can enter long mode (obviously)
+  - we have functinoal page allocator
+  - we have some kind of slab allocator
+  - we have kernel threads and basic locking primitives (spinlocks that in fact
+      are just cli and sti pair, mutexes and conditional variables)
+  - we have rather primitive vfs
+  - we have filesystem in ram
+  - we can populate ram filesystem from cpio initrd image (so we have initramfs)
 
-How to enter long mode from legacy multiboot?
+There are still much more tasks to do:
+  - process memory management; so far we have only kernelspace, i. e. all
+    threads share same address space, to support userspace we need isolated
+    address spaces and advanced memory management (demand paging, COW and so on)
+  - setup syscall interface, prepare interrupt handlers to work with userspace
+    (and this should be fairly simple task to do on amd64 cpus)
+  - exec* syscalls (parse executable, setup memory map, load and run executable
+    in userspace)
+  - disk based filesystem
+  - signals support
 
-1. We need aout kludge, because multiboot1 doesn't support 64 bit elf binaries,
-   so it needs some help
-
-2. We have to check that long mode is available:
-2.1 check CPUID instruction is available (21 bit of flags register)
-2.2 check extended CPUID functions are available (0x80000000 cmd of CPUID)
-2.3 check long mode is available (0x80000000 cmd of CPUID, bit 29 of edx)
-
-3. Create identity mapping for lower 2Mb of physical memory (2Mb = 1Mb of lowmem
-   + 1Mb for code and data)
-3.1 we use 2Mb pages in 4 level address translation scheme (we can actually use
-    1Gb pages as well)
-3.2 we also have to enable PAE bit (5 bit) in cr4 register
-
-4. Enable long mode if EFER MSR (0xC0000080, bit 8)
-
-5. Enable paging (bit 31 of cr0 register)
-
-6. Load long mode GDT
-6.1 long mode GDT contains 32bit mode descriptors for 32bit compatibility
-    submode of long mode
-6.2 long mode GDT also contains 64bit code and data descriptors, they are
-    contain L bit set and D bit cleared, and LIMIT and OFFSET fields of
-    64 bit descriptor are ignored (so there is no use setting it)
-6.3 pointer in long mode GDT pointer is 64 bit
-
-
-*"as far as i know" here means, that i actually don't know, that is i've heard
-or read it somewhere but never checked.
+All kind of contribution are welcome, if you want to contribute but don't
+know where to start contact me and we will find simple task for you.
