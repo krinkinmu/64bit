@@ -123,6 +123,8 @@ void free_pages(struct page *pages, int order);
 static inline struct memory_node *page_node(const struct page * const page)
 { return memory_node_get(page_node_id(page)); }
 
+static inline void *page_addr(struct page *page)
+{ return kernel_virt(page2pfn(page) << PAGE_BITS); }
 
 void setup_memory(void);
 void setup_buddy(void);
