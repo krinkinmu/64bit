@@ -10,7 +10,7 @@
  *   - 2 - err
  * Default value is 1.
  */
-#define CONFIG_MIN_DEBUG_LEVEL  1
+#define CONFIG_MIN_DEBUG_LEVEL  0
 #define CONFIG_RAMFS_TEST       /* run ramfs smoke test */
 #define CONFIG_IDE_TEST         /* run ide smoke test */
 #define CONFIG_KERNEL_SIZE      3 * 512 * 1024 * 1024
