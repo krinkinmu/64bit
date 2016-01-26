@@ -31,6 +31,23 @@ static struct thread *current_thread = &bootstrap;
 static struct scheduler *scheduler;
 
 
+static void check_stack(struct thread *thread)
+{
+	const size_t stack_order = KERNEL_STACK_ORDER;
+	const size_t stack_pages = 1ul << stack_order;
+	const size_t stack_size = PAGE_SIZE * stack_pages;
+	const char *begin = page_addr(thread->stack);
+
+	if (((char *)thread->stack_pointer < begin) ||
+			((char *)thread->stack_pointer >= begin + stack_size)) {
+		DBG_ERR("thread %p out of stack", thread);
+		DBG_ERR("\tstack_pointer %p", thread->stack_pointer);
+		DBG_ERR("\tstack [%p-%p]", begin, begin + stack_size);
+		while (1);
+	}
+}
+
+
 void idle(void)
 { while (1) schedule(); }
 
@@ -46,6 +63,9 @@ static void preempt_thread(struct thread *thread)
 static void place_thread(struct thread *thread)
 {
 	struct thread *prev = current_thread;
+
+	if (prev != &bootstrap)
+		check_stack(prev);
 
 	current_thread = thread;
 	if (prev->state == THREAD_FINISHED)
