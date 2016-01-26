@@ -99,7 +99,7 @@ static int match_pages(const void *page0, const void *page1)
 void ide_test(void)
 {
 	const unsigned long rsecs[] = { 0, 13, 42, 56, 1024 };
-	char src[PAGE_SIZE], dst[PAGE_SIZE];
+	static char src[PAGE_SIZE], dst[PAGE_SIZE];
 
 	for (size_t i = 0; i != sizeof(rsecs)/sizeof(rsecs[0]); ++i) {
 		const unsigned long sector = rsecs[i];
