@@ -199,12 +199,20 @@ static int __write_sectors_lba48(const void *data, unsigned long long sector,
 static int write_sectors(const char *data, unsigned long long sector,
 			size_t count)
 {
-	return __write_sectors_lba48(data, sector, count);
+	local_preempt_disable();
+	const int rc = __write_sectors_lba48(data, sector, count);
+	local_preempt_enable();
+
+	return rc;
 }
 
 static int read_sectors(char *data, unsigned long long sector, size_t count)
 {
-	return __read_sectors_lba48(data, sector, count);
+	local_preempt_disable();
+	const int rc = __read_sectors_lba48(data, sector, count);
+	local_preempt_enable();
+
+	return rc;
 }
 
 static void handle_bio(struct bio *bio)
