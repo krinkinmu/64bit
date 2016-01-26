@@ -38,10 +38,7 @@ void main(void)
 	setup_vfs();
 
 	/* start first real kernel thread */
-	struct page *stack = alloc_pages(1, NT_LOW);
-	void *vaddr = kernel_virt(page2pfn(stack) << PAGE_BITS);
-	struct thread *start_thread = create_thread(&start, 0, vaddr,
-					2 * PAGE_SIZE);
+	struct thread *start_thread = create_thread(&start, 0);
 	activate_thread(start_thread);
 	local_preempt_enable();
 	idle();

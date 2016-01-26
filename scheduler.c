@@ -32,6 +32,7 @@ static struct thread *rr_alloc_thread(void)
 		return 0;
 
 	list_init(&thread->link);
+
 	return THREAD(thread);
 }
 
@@ -43,7 +44,9 @@ static void rr_free_thread(struct thread *thread)
 }
 
 static bool rr_need_preempt(struct thread *thread)
-{ return (jiffies() - thread->time) * RR_MS > RR_SCHED_SLICE * HZ; }
+{
+	return (jiffies() - thread->time) * RR_MS > RR_SCHED_SLICE * HZ;
+}
 
 static struct thread *rr_next_thread(void)
 {
@@ -52,10 +55,11 @@ static struct thread *rr_next_thread(void)
 	if (list_empty(&rr_active_list))
 		return 0;
 
-	struct list_head *link = list_first(&rr_active_list);
-	struct rr_thread *thread = LIST_ENTRY(link, struct rr_thread, link);
+	struct list_head *first = list_first(&rr_active_list);
+	struct rr_thread *thread = LIST_ENTRY(first, struct rr_thread, link);
 
 	list_del(&thread->link);
+
 	return THREAD(thread);
 }
 

@@ -53,6 +53,7 @@ struct thread {
 	void *stack_pointer;
 	unsigned long long time;
 	enum thread_state state;
+	struct page *stack;
 };
 
 struct scheduler {
@@ -65,8 +66,7 @@ struct scheduler {
 	void (*place)(struct thread *);
 };
 
-struct thread *create_thread(void (*fptr)(void *), void *data,
-			void *stack, size_t size);
+struct thread *create_thread(void (*fptr)(void *), void *data);
 void destroy_thread(struct thread *thread);
 void activate_thread(struct thread *thread);
 void block_thread(void);

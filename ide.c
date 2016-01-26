@@ -287,9 +287,7 @@ void setup_ide(void)
 {
 	ide_bio_cache = KMEM_CACHE(struct bio);
 
-	static unsigned long stack[512];
-	struct thread *thread = create_thread(&process_bio_queue,
-				0, stack, sizeof(stack));
+	struct thread *thread = create_thread(&process_bio_queue, 0);
 	activate_thread(thread);
 
 #ifdef CONFIG_IDE_TEST

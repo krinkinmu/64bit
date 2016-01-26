@@ -1,7 +1,15 @@
 #include "threads.h"
+#include "memory.h"
+#include "kernel.h"
 #include "string.h"
 #include "stdio.h"
 #include "time.h"
+
+#ifndef CONFIG_KERNEL_STACK
+#define KERNEL_STACK_ORDER 1
+#else
+#define KERNEL_STACK_ORDER CONFIG_KERNEL_STACK
+#endif
 
 struct switch_stack_frame {
 	unsigned long rflags;
@@ -55,14 +63,12 @@ static void place_thread(struct thread *thread)
 void thread_entry(struct thread *thread, void (*fptr)(void *), void *data)
 {
 	place_thread(thread);
-
 	local_preempt_enable();
 	fptr(data);
-
 	finish_thread();
 }
 
-struct thread *create_thread(void (*fptr)(void *), void *data,
+static struct thread *__create_thread(void (*fptr)(void *), void *data,
 			void *stack, size_t size)
 {
 	const size_t sz = sizeof(struct switch_stack_frame);
@@ -91,9 +97,32 @@ struct thread *create_thread(void (*fptr)(void *), void *data,
 	return thread;
 }
 
+struct thread *create_thread(void (*fptr)(void *), void *arg)
+{
+	const size_t stack_order = KERNEL_STACK_ORDER;
+	const size_t stack_pages = 1ul << KERNEL_STACK_ORDER;
+	const size_t stack_size = PAGE_SIZE * stack_pages;
+
+	struct page *stack = alloc_pages(stack_order, NT_LOW);
+
+	if (!stack)
+		return 0;
+
+	void *vaddr = page_addr(stack);
+	struct thread *thread = __create_thread(fptr, arg, vaddr, stack_size);
+
+	if (!thread)
+		free_pages(stack, stack_order);
+	else
+		thread->stack = stack;
+
+	return thread;
+}
+
 void destroy_thread(struct thread *thread)
 {
 	wait_thread(thread);
+	free_pages(thread->stack, KERNEL_STACK_ORDER);
 	scheduler->free(thread);
 }
 
