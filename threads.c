@@ -5,6 +5,8 @@
 #include "stdio.h"
 #include "time.h"
 
+#include <stdint.h>
+
 #ifndef CONFIG_KERNEL_STACK
 #define KERNEL_STACK_ORDER 1
 #else
@@ -12,17 +14,17 @@
 #endif
 
 struct switch_stack_frame {
-	unsigned long rflags;
-	unsigned long r15;
-	unsigned long r14;
-	unsigned long r13;
-	unsigned long r12;
-	unsigned long rbx;
-	unsigned long rbp;
-	unsigned long entry;
-	unsigned long thread;
-	unsigned long fptr;
-	unsigned long data;
+	uint64_t rflags;
+	uint64_t r15;
+	uint64_t r14;
+	uint64_t r13;
+	uint64_t r12;
+	uint64_t rbx;
+	uint64_t rbp;
+	uint64_t entry;
+	uint64_t thread;
+	uint64_t fptr;
+	uint64_t data;
 } __attribute__((packed));
 
 
