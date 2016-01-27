@@ -2,6 +2,7 @@
 #include "memory.h"
 #include "kernel.h"
 #include "string.h"
+#include "paging.h"
 #include "stdio.h"
 #include "time.h"
 
@@ -70,6 +71,9 @@ static void place_thread(struct thread *thread)
 		check_stack(prev);
 
 	current_thread = thread;
+
+	store_pml4(page_paddr(current_thread->pt));
+
 	if (prev->state == THREAD_FINISHED)
 		prev->state = THREAD_DEAD;
 
@@ -98,12 +102,19 @@ static struct thread *__create_thread(void (*fptr)(void *), void *data,
 	if (size < sz)
 		return 0;
 
-	struct thread *thread = scheduler->alloc();
+	struct page *pt = alloc_pages(0, NT_LOW);
 
-	if (!thread)
+	if (!pt)
 		return 0;
 
-	thread->state = THREAD_NEW;
+	struct thread *thread = scheduler->alloc();
+
+	if (!thread) {
+		free_pages(pt, 0);
+		return 0;
+	}
+
+	memcpy(page_addr(pt), kernel_virt(load_pml4()), PAGE_SIZE);
 
 	void start_thread(void);
 
@@ -114,7 +125,10 @@ static struct thread *__create_thread(void (*fptr)(void *), void *data,
 	frame->thread = (unsigned long)thread;
 	frame->fptr = (unsigned long)fptr;
 	frame->data = (unsigned long)data;
+
 	thread->stack_pointer = frame;
+	thread->pt = pt;
+	thread->state = THREAD_NEW;
 
 	return thread;
 }
@@ -130,8 +144,8 @@ struct thread *create_thread(void (*fptr)(void *), void *arg)
 	if (!stack)
 		return 0;
 
-	void *vaddr = page_addr(stack);
-	struct thread *thread = __create_thread(fptr, arg, vaddr, stack_size);
+	struct thread *thread = __create_thread(fptr, arg,
+				page_addr(stack), stack_size);
 
 	if (!thread)
 		free_pages(stack, stack_order);
@@ -144,6 +158,7 @@ struct thread *create_thread(void (*fptr)(void *), void *arg)
 void destroy_thread(struct thread *thread)
 {
 	wait_thread(thread);
+	free_pages(thread->pt, 0);
 	free_pages(thread->stack, KERNEL_STACK_ORDER);
 	scheduler->free(thread);
 }
@@ -229,4 +244,5 @@ void setup_threading(void)
 	setup_round_robin();
 	scheduler = &round_robin;
 	bootstrap.state = THREAD_ACTIVE;
+	bootstrap.pt = pfn2page(load_pml4() >> PAGE_BITS);
 }

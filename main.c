@@ -12,6 +12,24 @@
 #include "vga.h"
 #include "vfs.h"
 
+static void test_function(void *dummy)
+{
+	(void) dummy;
+}
+
+static void test_threading(void)
+{
+	DBG_INFO("start threading test");
+	for (int i = 0; i != 10000; ++i) {
+		struct thread *thread = create_thread(&test_function, 0);
+
+		activate_thread(thread);
+		wait_thread(thread);
+		destroy_thread(thread);
+	}
+	DBG_INFO("finish threading test");
+}
+
 static void start(void *dummy)
 {
 	(void) dummy;
@@ -19,6 +37,7 @@ static void start(void *dummy)
 	setup_ramfs();
 	setup_initramfs();
 	setup_ide(); // we aren't going to use it in near future
+	test_threading();
 
 	while (1);
 }

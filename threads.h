@@ -54,6 +54,7 @@ struct thread {
 	unsigned long long time;
 	enum thread_state state;
 	struct page *stack;
+	struct page *pt;
 };
 
 struct scheduler {
