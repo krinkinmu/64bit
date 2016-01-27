@@ -25,7 +25,7 @@ struct vma {
 	uintptr_t end;
 	int perm;
 	struct mm *mm;
-	int (*fault)(virt_t vaddr, int access);
+	int (*fault)(struct thread *, struct vma *, virt_t, int);
 };
 
 struct mm {
@@ -41,7 +41,7 @@ void release_thread_memory(struct thread *thread);
 
 /* work with current thread mm */
 int mmap(virt_t begin, virt_t end, int perm);
-int munmap(virt_t begin, virt_t end);
+void munmap(virt_t begin, virt_t end);
 
 void setup_mm(void);
 
