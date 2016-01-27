@@ -66,6 +66,7 @@ struct page {
 
 	union {
 		struct kmem_slab *slab;
+		int refcount;
 		int order;
 	} u;
 };
