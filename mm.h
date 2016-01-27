@@ -5,7 +5,6 @@
 #include "memory.h"
 #include "paging.h"
 
-#include <stdint.h>
 
 enum vma_perm {
 	VMA_PERM_WRITE = 1 << 0,
@@ -41,8 +40,8 @@ int setup_thread_memory(struct thread *thread);
 void release_thread_memory(struct thread *thread);
 
 /* work with current thread mm */
-int mmap(uintptr_t begin, uintptr_t end, int perm);
-int munmap(uintptr_t begin, uintptr_t end);
+int mmap(virt_t begin, virt_t end, int perm);
+int munmap(virt_t begin, virt_t end);
 
 void setup_mm(void);
 

@@ -103,7 +103,7 @@ void release_thread_memory(struct thread *thread)
 	free_mm(mm);
 }
 
-int mmap(uintptr_t begin, uintptr_t end, int perm)
+int mmap(virt_t begin, virt_t end, int perm)
 {
 	(void) begin;
 	(void) end;
@@ -111,7 +111,7 @@ int mmap(uintptr_t begin, uintptr_t end, int perm)
 	return 0;
 }
 
-int munmap(uintptr_t begin, uintptr_t end)
+int munmap(virt_t begin, virt_t end)
 {
 	(void) begin;
 	(void) end;
