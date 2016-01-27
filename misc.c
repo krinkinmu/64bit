@@ -10,8 +10,8 @@
 #define MAX_CMDLINE_LEN 256
 
 const char *cmdline;
-struct mmap_entry mmap[MMAP_MAX_COUNT];
-int mmap_count;
+struct mmap_entry memory_map[MMAP_MAX_COUNT];
+int memory_map_size;
 
 unsigned long initrd_begin;
 unsigned long initrd_end;
@@ -23,10 +23,10 @@ struct mboot_mmap_entry {
 	uint32_t type;
 } __attribute__((packed));
 
-static void setup_mmap(struct multiboot_info *info)
+static void setup_memory_map(struct multiboot_info *info)
 {
 	if ((info->flags & (1ul << 6)) == 0) {
-		DBG_ERR("mmap info isn't available");
+		DBG_ERR("memory map info isn't available");
 		while (1);
 	}
 
@@ -37,12 +37,12 @@ static void setup_mmap(struct multiboot_info *info)
 		const struct mboot_mmap_entry *entry =
 					(const struct mboot_mmap_entry *)begin;
 
-		mmap[mmap_count].addr = entry->addr;
-		mmap[mmap_count].length = entry->length;
-		mmap[mmap_count].type = entry->type;
+		memory_map[memory_map_size].addr = entry->addr;
+		memory_map[memory_map_size].length = entry->length;
+		memory_map[memory_map_size].type = entry->type;
 
 		begin += entry->size + sizeof(entry->size);
-		++mmap_count;
+		++memory_map_size;
 	}
 }
 
@@ -99,7 +99,7 @@ void setup_misc(void)
 
 	struct multiboot_info *pmboot_info = (void *)((uintptr_t)mboot_info);
 
-	setup_mmap(pmboot_info);
+	setup_memory_map(pmboot_info);
 	setup_cmdline(pmboot_info);
 	setup_initrd(pmboot_info);
 }

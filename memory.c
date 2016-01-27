@@ -148,8 +148,8 @@ static void memory_free_region(unsigned long long addr, unsigned long long size)
 
 void setup_memory(void)
 {
-	for (int i = 0; i != mmap_count; ++i) {
-		const struct mmap_entry *entry = mmap + i;
+	for (int i = 0; i != memory_map_size; ++i) {
+		const struct mmap_entry *entry = memory_map + i;
 
 		balloc_add_region(entry->addr, entry->length);
 		printf("memory range: %#llx-%#llx type %lu\n",
@@ -165,8 +165,8 @@ void setup_memory(void)
 	balloc_add_region(kernel_begin, kernel_end - kernel_begin);
 	balloc_add_region(initrd_begin, initrd_end - initrd_begin);
 
-	for (int i = 0; i != mmap_count; ++i) {
-		const struct mmap_entry *entry = mmap + i;
+	for (int i = 0; i != memory_map_size; ++i) {
+		const struct mmap_entry *entry = memory_map + i;
 
 		if (entry->type != MMAP_AVAILABLE)
 			balloc_reserve_region(entry->addr, entry->length);
