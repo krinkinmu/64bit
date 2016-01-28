@@ -57,6 +57,23 @@ static inline phys_t load_pml4(void)
 	return pml4;
 }
 
+static inline struct page *get_page(struct page *page)
+{
+	if (page)
+		++page->u.refcount;
+	return page;
+}
+
+static inline void put_page(struct page *page)
+{
+	if (page && --page->u.refcount == 0)
+		free_pages(page, 0);
+}
+
+int map_range(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
+			unsigned long flags);
+int unmap_range(pte_t *pml4, virt_t virt, pfn_t pages);
+
 void *kmap(struct page *pages, pfn_t count);
 void kunmap(void *vaddr);
 void setup_paging(void);

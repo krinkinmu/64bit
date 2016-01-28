@@ -1,163 +1,310 @@
 #include "paging.h"
 #include "memory.h"
 #include "string.h"
+#include "error.h"
 #include "list.h"
 
 
-#define PTE_KERNEL (PTE_PRESENT | PTE_READ | PTE_WRITE | PTE_SUPERUSER)
+#define PTE_KERNEL (PTE_READ | PTE_WRITE | PTE_SUPERUSER)
 #define PTE_FLAGS  BITS_CONST(11, 0)
 
 
 static unsigned long page_common_flags(unsigned long old, unsigned long new)
 { return (old | new) & PTE_FLAGS; }
 
-static phys_t alloc_page_table(void)
+static struct page *alloc_page(void)
 {
-	const struct page *pt = alloc_pages(0, NT_LOW);
-	const phys_t paddr = page2pfn(pt) << PAGE_BITS;
+	struct page *pt = alloc_pages(0, NT_LOW);
 
-	memset(kernel_virt(paddr), 0, PAGE_SIZE);
+	if (pt) {
+		pt->u.refcount = 0;
+		memset(page_addr(pt), 0, PAGE_SIZE);
+	}
 
-	return paddr;
+	return pt;
 }
 
-static void pml1_map(pte_t *pml1, virt_t virt, phys_t phys, pfn_t pages,
+static int pml1_map(struct page *parent, pte_t *pml1,
+			virt_t virt, phys_t phys, pfn_t pages,
 			unsigned long flags)
 {
 	const int index = pml1_index(virt);
 	const int entries = MINU(index + pages, PT_SIZE);
 
 	for (int i = index; i != entries; ++i) {
-		pml1[i] = (phys + i * PAGE_SIZE) | flags;
-		flush_tlb_page(virt + i * PAGE_SIZE);
+		const pte_t pte = pml1[i];
+
+		pml1[i] = phys | flags;
+		flush_tlb_page(virt);
+
+		if ((pte & PTE_PRESENT) == 0)
+			get_page(parent);
+
+		phys += PAGE_SIZE;
+		virt += PAGE_SIZE;
 	}
+
+	return 0;
 }
 
-static void pml1_unmap(pte_t *pml1, virt_t virt, pfn_t pages)
+static void pml1_unmap(struct page *parent, pte_t *pml1,
+			virt_t virt, pfn_t pages)
 {
 	const int index = pml1_index(virt);
 	const int entries = MINU(index + pages, PT_SIZE);
 
 	for (int i = index; i != entries; ++i) {
-		pml1[i] = 0;
-		flush_tlb_page(virt + i * PAGE_SIZE);
+		if ((pml1[i] & PTE_PRESENT) != 0) {
+			pml1[i] = 0;
+			put_page(parent);
+			flush_tlb_page(virt);
+		}
+		virt += PAGE_SIZE;
 	}
 }
 
-static void pml2_map(pte_t *pml2, virt_t virt, phys_t phys, pfn_t pages,
+static int pml2_map(struct page *parent, pte_t *pml2,
+			virt_t virt, phys_t phys, pfn_t pages,
 			unsigned long flags)
 {
 	for (int i = pml2_index(virt); pages && i != PT_SIZE; ++i) {
-		phys_t paddr = pte_phys(pml2[i]);
+		const pte_t pte = pml2[i];
+		struct page *page = ((pte & PTE_PRESENT) == 0)
+				? get_page(alloc_page())
+				: get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
 
-		if ((pml2[i] & PTE_PRESENT) == 0)
-			paddr = alloc_page_table();
+		if (!page)
+			return -ENOMEM;
 
+		phys_t paddr = page_paddr(page);
 		pte_t *pt = kernel_virt(paddr);
 		const pfn_t to_map = MINU(pages, PML1_PAGES);
 		const phys_t bytes = to_map << PAGE_BITS;
+		const int rc = pml1_map(page, pt, virt, phys, to_map, flags);
 
-		pml1_map(pt, virt, phys, to_map, flags);
+		if (page->u.refcount > 1) {
+			if ((pte & PTE_PRESENT) == 0)
+				get_page(parent);
+			pml2[i] = paddr | page_common_flags(pte, flags);
+		}
+
+		put_page(page);
+
+		if (rc)
+			return rc;
 
 		virt += bytes;
 		phys += bytes;
 		pages -= to_map;
-
-		pml2[i] = paddr | page_common_flags(pml2[i], flags);
 	}
+
+	return 0;
 }
 
-static void pml2_unmap(pte_t *pml2, virt_t virt, pfn_t pages)
+static void pml2_unmap(struct page *parent, pte_t *pml2,
+			virt_t virt, pfn_t pages)
 {
 	for (int i = pml2_index(virt); pages && i != PT_SIZE; ++i) {
-		const phys_t paddr = pte_phys(pml2[i]);
-		pte_t *pt = kernel_virt(paddr);
+		const pte_t pte = pml2[i];
 		const pfn_t to_unmap = MINU(pages, PML1_PAGES);
 		const phys_t bytes = to_unmap << PAGE_BITS;
 
-		pml1_unmap(pt, virt, to_unmap);
+		if ((pte & PTE_PRESENT) == 0) {
+			virt += bytes;
+			pages -= to_unmap;
+			continue;
+		}
 
+		struct page *page = get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
+		pte_t *pt = page_addr(page);
+
+		pml1_unmap(page, pt, virt, to_unmap);
+
+		if (page->u.refcount == 1) {
+			pml2[i] = 0;
+			put_page(parent);
+		}
+
+		put_page(page);
 		virt += bytes;
 		pages -= to_unmap;
 	}
 }
 
-static void pml3_map(pte_t *pml3, virt_t virt, phys_t phys, pfn_t pages,
+static int pml3_map(struct page *parent, pte_t *pml3,
+			virt_t virt, phys_t phys, pfn_t pages,
 			unsigned long flags)
 {
 	for (int i = pml3_index(virt); pages && i != PT_SIZE; ++i) {
-		phys_t paddr = pte_phys(pml3[i]);
+		const pte_t pte = pml3[i];
+		struct page *page = ((pte & PTE_PRESENT) == 0)
+				? get_page(alloc_page())
+				: get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
 
-		if ((pml3[i] & PTE_PRESENT) == 0)
-			paddr = alloc_page_table();
+		if (!page)
+			return -ENOMEM;
 
+		phys_t paddr = page_paddr(page);
 		pte_t *pt = kernel_virt(paddr);
 		const pfn_t to_map = MINU(pages, PML2_PAGES);
 		const phys_t bytes = to_map << PAGE_BITS;
+		const int rc = pml2_map(page, pt, virt, phys, to_map, flags);
 
-		pml2_map(pt, virt, phys, to_map, flags);
+		if (page->u.refcount > 1) {
+			/* if we created new entry then get_page */
+			if ((pte & PTE_PRESENT) == 0)
+				get_page(parent);
+			pml3[i] = paddr | page_common_flags(pte, flags);
+		}
+
+		put_page(page);
+
+		if (rc)
+			return rc;
 
 		virt += bytes;
 		phys += bytes;
 		pages -= to_map;
-
-		pml3[i] = paddr | page_common_flags(pml3[i], flags);
 	}
+
+	return 0;
 }
 
-static void pml3_unmap(pte_t *pml3, virt_t virt, pfn_t pages)
+static void pml3_unmap(struct page *parent, pte_t *pml3,
+			virt_t virt, pfn_t pages)
 {
 	for (int i = pml3_index(virt); pages && i != PT_SIZE; ++i) {
-		const phys_t paddr = pte_phys(pml3[i]);
-		pte_t *pt = kernel_virt(paddr);
+		const pte_t pte = pml3[i];
 		const pfn_t to_unmap = MINU(pages, PML2_PAGES);
 		const phys_t bytes = to_unmap << PAGE_BITS;
 
-		pml2_unmap(pt, virt, to_unmap);
+		if ((pte & PTE_PRESENT) == 0) {
+			virt += bytes;
+			pages -= to_unmap;
+			continue;
+		}
 
+		struct page *page = get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
+		pte_t *pt = page_addr(page);
+
+		pml2_unmap(page, pt, virt, to_unmap);
+
+		if (page->u.refcount == 1) {
+			pml3[i] = 0;
+			put_page(parent);
+		}
+
+		put_page(page);
 		virt += bytes;
 		pages -= to_unmap;
 	}
 }
 
-static void pml4_map(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
+static int pml4_map(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
 			unsigned long flags)
 {
 	for (int i = pml4_index(virt); pages && i != PT_SIZE; ++i) {
-		phys_t paddr = pte_phys(pml4[i]);
+		const pte_t pte = pml4[i];
+		struct page *page = ((pte & PTE_PRESENT) == 0)
+				? get_page(alloc_page())
+				: get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
 
-		if ((pml4[i] & PTE_PRESENT) == 0)
-			paddr = alloc_page_table();
+		if (!page)
+			return -ENOMEM;
 
+		phys_t paddr = page_paddr(page);
 		pte_t *pt = kernel_virt(paddr);
 		const pfn_t to_map = MINU(pages, PML3_PAGES);
 		const phys_t bytes = to_map << PAGE_BITS;
+		const int rc = pml3_map(page, pt, virt, phys, to_map, flags);
 
-		pml3_map(pt, virt, phys, to_map, flags);
+		if (page->u.refcount > 1)
+			pml4[i] = paddr | page_common_flags(pte, flags);
+
+		put_page(page);
+
+		if (rc)
+			return rc;
 
 		virt += bytes;
 		phys += bytes;
 		pages -= to_map;
-
-		pml4[i] = paddr | page_common_flags(pml4[i], flags);
 	}
+
+	return 0;
 }
 
 static void pml4_unmap(pte_t *pml4, virt_t virt, pfn_t pages)
 {
 	for (int i = pml4_index(virt); pages && i != PT_SIZE; ++i) {
-		const phys_t paddr = pte_phys(pml4[i]);
-		pte_t *pt = kernel_virt(paddr);
+		const pte_t pte = pml4[i];
 		const pfn_t to_unmap = MINU(pages, PML3_PAGES);
 		const phys_t bytes = to_unmap << PAGE_BITS;
 
-		pml3_unmap(pt, virt, to_unmap);
+		if ((pte & PTE_PRESENT) == 0) {
+			virt += bytes;
+			pages -= to_unmap;
+			continue;
+		}
 
+		struct page *page = get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
+		pte_t *pt = page_addr(page);
+
+		pml3_unmap(page, pt, virt, to_unmap);
+
+		if (page->u.refcount == 1)
+			pml4[i] = 0;
+
+		put_page(page);
 		virt += bytes;
 		pages -= to_unmap;
 	}
 }
 
+int map_range(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
+			unsigned long flags)
+{
+	if ((virt & (PAGE_SIZE - 1)) != 0)
+		return -EINVAL;
+
+	if ((phys & (PAGE_SIZE - 1)) != 0)
+		return -EINVAL;
+
+	if (((virt_t)pml4 & (PAGE_SIZE - 1)) != 0)
+		return -EINVAL;
+
+	if (!pml4)
+		return -EINVAL;
+
+	if (!pages)
+		return 0;
+
+	const int rc = pml4_map(pml4, virt, phys, pages, flags | PTE_PRESENT);
+
+	if (rc)
+		pml4_unmap(pml4, virt, pages);
+
+	return rc;
+}
+
+int unmap_range(pte_t *pml4, virt_t virt, pfn_t pages)
+{
+	if ((virt & (PAGE_SIZE - 1)) != 0)
+		return -EINVAL;
+
+	if (((virt_t)pml4 & (PAGE_SIZE - 1)) != 0)
+		return -EINVAL;
+
+	if (!pml4)
+		return -EINVAL;
+
+	if (!pages)
+		return 0;
+
+	pml4_unmap(pml4, virt, pages);
+
+	return 0;
+}
 
 #define KMAP_ORDERS 16
 
@@ -259,7 +406,7 @@ void *kmap(struct page *pages, pfn_t count)
 	const virt_t vaddr = kmap2virt(range);
 	pte_t *pt = kernel_virt(load_pml4());
 
-	pml4_map(pt, vaddr, page2pfn(pages) << PAGE_BITS,
+	map_range(pt, vaddr, page2pfn(pages) << PAGE_BITS,
 				count, PTE_KERNEL);
 	return (void *)vaddr;
 }
@@ -270,7 +417,7 @@ void kunmap(void *vaddr)
 	const pfn_t count = range->pages;
 
 	pte_t *pt = kernel_virt(load_pml4());
-	pml4_unmap(pt, (virt_t)vaddr, count);
+	unmap_range(pt, (virt_t)vaddr, count);
 	kmap_free_range(range, range->pages);
 }
 
@@ -282,17 +429,82 @@ static void setup_kmap(void)
 	kmap_free_range(all_kmap_ranges, KMAP_PAGES);
 }
 
+static void pml2_pin(pte_t *pml2, virt_t virt, pfn_t pages)
+{
+	for (int i = pml2_index(virt); pages && i != PT_SIZE; ++i) {
+		const pte_t pte = pml2[i];
+		const pfn_t to_pin = MINU(pages, PML1_PAGES);
+		const phys_t bytes = to_pin << PAGE_BITS;
+
+		if ((pte & PTE_PRESENT) == 0) {
+			virt += bytes;
+			pages -= to_pin;
+			continue;
+		}
+
+		get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
+		virt += bytes;
+		pages -= to_pin;
+	}
+}
+
+static void pml3_pin(pte_t *pml3, virt_t virt, pfn_t pages)
+{
+	for (int i = pml3_index(virt); pages && i != PT_SIZE; ++i) {
+		const pte_t pte = pml3[i];
+		const pfn_t to_pin = MINU(pages, PML2_PAGES);
+		const phys_t bytes = to_pin << PAGE_BITS;
+
+		if ((pte & PTE_PRESENT) == 0) {
+			virt += bytes;
+			pages -= to_pin;
+			continue;
+		}
+
+		struct page *page = get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
+		pte_t *pt = page_addr(page);
+
+		pml2_pin(pt, virt, to_pin);
+		virt += bytes;
+		pages -= to_pin;
+	}
+}
+
+static void pml4_pin(pte_t *pml4, virt_t virt, pfn_t pages)
+{
+	for (int i = pml4_index(virt); pages && i != PT_SIZE; ++i) {
+		const pte_t pte = pml4[i];
+		const pfn_t to_pin = MINU(pages, PML3_PAGES);
+		const phys_t bytes = to_pin << PAGE_BITS;
+
+		if ((pte & PTE_PRESENT) == 0) {
+			virt += bytes;
+			pages -= to_pin;
+			continue;
+		}
+
+		struct page *page = get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
+		pte_t *pt = page_addr(page);
+
+		pml3_pin(pt, virt, to_pin);
+		virt += bytes;
+		pages -= to_pin;
+	}
+}
+
 void setup_paging(void)
 {
 	const phys_t opaddr = load_pml4();
 	pte_t *opt = kernel_virt(opaddr);
 
-	const phys_t paddr = alloc_page_table();
+	struct page *page = alloc_page();
+	const phys_t paddr = page_paddr(page);
 	pte_t *pt = kernel_virt(paddr);
 
-	pt[0] = opt[0]; // preserve 4GB identity mapping for initramfs
-	pml4_map(pt, VIRTUAL_BASE, PHYSICAL_BASE,
-				KERNEL_PAGES + KMAP_PAGES, PTE_KERNEL);
+	pt[0] = opt[0]; // preserve lower 4GB identity mapping for initramfs
+	DBG_ASSERT(map_range(pt, VIRTUAL_BASE, PHYSICAL_BASE,
+				KERNEL_PAGES + KMAP_PAGES, PTE_KERNEL) == 0);
+	pml4_pin(pt, VIRTUAL_BASE, KERNEL_PAGES + KMAP_PAGES);
 	store_pml4(paddr);
 	setup_kmap();
 }
