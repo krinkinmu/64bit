@@ -5,7 +5,7 @@
 #include "list.h"
 
 
-#define PTE_KERNEL (PTE_READ | PTE_WRITE | PTE_SUPERUSER)
+#define PTE_KERNEL PTE_WRITE
 #define PTE_FLAGS  BITS_CONST(11, 0)
 
 

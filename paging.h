@@ -8,9 +8,7 @@
 
 
 #define PTE_PRESENT   (1ul << 0)
-#define PTE_READ      0ul
 #define PTE_WRITE     (1ul << 1)
-#define PTE_SUPERUSER 0ul
 #define PTE_USER      (1ul << 2)
 
 
