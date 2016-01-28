@@ -37,6 +37,8 @@ struct thread;
 int setup_thread_memory(struct thread *thread);
 void release_thread_memory(struct thread *thread);
 
+int mm_page_fault(struct thread *thread, virt_t vaddr, int access);
+
 /* work with current thread mm */
 int mmap(virt_t begin, virt_t end, int perm);
 void munmap(virt_t begin, virt_t end);

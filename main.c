@@ -30,6 +30,16 @@ static void test_threading(void)
 	DBG_INFO("finish threading test");
 }
 
+static void test_page_fault(void)
+{
+	const virt_t vaddr = BIT_CONST(32);
+	volatile char *ptr = (char *)vaddr;
+
+	DBG_INFO("generate page fault");
+	*ptr = 13;
+	DBG_ERR("no page fault");
+}
+
 static void start(void *dummy)
 {
 	(void) dummy;
@@ -38,6 +48,7 @@ static void start(void *dummy)
 	setup_initramfs();
 	setup_ide(); // we aren't going to use it in near future
 	test_threading();
+	test_page_fault();
 
 	while (1);
 }

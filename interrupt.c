@@ -3,6 +3,8 @@
 #include "irqchip.h"
 #include "memory.h"
 #include "stdio.h"
+#include "error.h"
+#include "mm.h"
 
 #define IDT_PRESENT    (1ul << 47)
 #define IDT_64INT      (14ul << 40)
@@ -121,11 +123,35 @@ static inline void unmask_irq(int irq)
 static inline void ack_irq(int irq)
 { irqchip_eoi(irqchip, irq); }
 
+static inline virt_t load_cr2(void)
+{
+	virt_t cr2;
+
+	__asm__ volatile ("movq %%cr2, %0" : "=a"(cr2));
+	return cr2;
+}
+
+static int page_fault_handler(struct interrupt_frame *ctx)
+{
+	const int access = (ctx->error & BIT_CONST(1)) != 0
+				? VMA_ACCESS_WRITE
+				: VMA_ACCESS_READ;
+	const virt_t vaddr = load_cr2();
+	struct thread *thread = current();
+
+	if (!thread)
+		return -EINVAL;
+
+	return mm_page_fault(thread, vaddr, access);
+}
+
 void isr_common_handler(struct interrupt_frame *ctx)
 {
 	const int intno = ctx->intno;
 
 	if (intno < IDT_EXCEPTIONS) {
+		if (intno == 14 && !page_fault_handler(ctx))
+			return;
 		default_exception_handler(ctx);
 		return;
 	}

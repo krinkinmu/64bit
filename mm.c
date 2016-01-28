@@ -66,7 +66,8 @@ static int anon_page_fault(struct vma *vma, virt_t vaddr, int access)
 	if (!page)
 		return -ENOMEM;
 
-	const int rc = map_range(page_addr(vma->mm->pt), vaddr,
+	const int rc = map_range(page_addr(vma->mm->pt),
+				vaddr & (PAGE_SIZE - 1),
 				page_paddr(get_page(page)), 1,
 				get_page_flags(vma->perm));
 
@@ -109,6 +110,21 @@ static int lookup_vma(struct mm *mm, virt_t begin, virt_t end,
 	iter->parent = parent;
 	iter->vma = 0;
 	return 0;
+}
+
+int mm_page_fault(struct thread *thread, virt_t vaddr, int access)
+{
+	struct mm *mm = thread->mm;
+
+	if (!mm)
+		return -EINVAL;
+
+	struct vma_iter iter;
+
+	if (!lookup_vma(mm, vaddr, vaddr, &iter))
+		return -EINVAL;
+
+	return iter.vma->fault(iter.vma, vaddr, access);
 }
 
 static void insert_vma(struct mm *mm, struct vma *vma)
