@@ -11,29 +11,6 @@
 static struct kmem_cache *mm_cachep;
 static struct kmem_cache *vma_cachep;
 
-static bool put_page(struct page *page)
-{
-	if (--page->u.refcount == 0) {
-		free_pages(page, 0);
-		return true;
-	}
-	return false;
-}
-
-/*
-static struct page *get_page(struct page *page)
-{
-	if (page)
-		++page->u.refcount;
-	return page;
-}
-
-static struct page *alloc_page(void)
-{
-	return get_page(alloc_pages(0, NT_HIGH));
-}
-*/
-
 static struct page *alloc_page_table(void)
 {
 	return alloc_pages(0, NT_LOW);
@@ -157,98 +134,9 @@ int mmap(virt_t begin, virt_t end, int perm)
 	return __mmap(current(), begin, end, perm);
 }
 
-static bool unmap_pml1_range(struct page *page, virt_t begin, virt_t end)
-{
-	pte_t *pml1 = page_addr(page);
-	bool put = false;
-
-	for (int i = pml1_index(begin); i != pml1_index(end); ++i) {
-		const pte_t pte = pml1[i];
-		const pfn_t pfn = pte_phys(pte) >> PAGE_BITS;
-
-		if ((pte & PTE_PRESENT)) {
-			struct page *user = pfn2page(pfn);
-
-			pml1[i] = 0;
-			put_page(user);
-			put |= put_page(page);
-			flush_tlb_page(begin);
-		}
-		begin += PAGE_SIZE;
-	}
-	return put;
-}
-
-static bool unmap_pml2_range(struct page *page,
-			virt_t begin, virt_t end)
-{
-	pte_t *pml2 = page_addr(page);
-	bool put = false;
-
-	for (int i = pml2_index(begin); i != pml2_index(end); ++i) {
-		const pfn_t remain = (end - begin) >> PAGE_BITS;
-		const pfn_t to_unmap = MINU(remain, PML1_PAGES);
-		const virt_t bytes = (virt_t)PAGE_SIZE * to_unmap;
-		const pte_t pte = pml2[i];
-		const pfn_t pfn = pte_phys(pte) >> PAGE_BITS;
-
-		if ((pte & PTE_PRESENT)) {
-			struct page *pml1 = pfn2page(pfn);
-
-			if (unmap_pml1_range(pml1, begin, begin + bytes)) {
-				pml2[i] = 0;
-				put |= put_page(page);
-			}
-		}
-		begin += bytes;
-	}
-	return put;
-}
-
-static bool unmap_pml3_range(struct page *page, virt_t begin, virt_t end)
-{
-	pte_t *pml3 = page_addr(page);
-	bool put = false;
-
-	for (int i = pml3_index(begin); i != pml3_index(end); ++i) {
-		const pfn_t remain = (end - begin) >> PAGE_BITS;
-		const pfn_t to_unmap = MINU(remain, PML2_PAGES);
-		const virt_t bytes = (virt_t)PAGE_SIZE * to_unmap;
-		const pte_t pte = pml3[i];
-		const pfn_t pfn = pte_phys(pte) >> PAGE_BITS;
-
-		if ((pte & PTE_PRESENT)) {
-			struct page *pml2 = pfn2page(pfn);
-
-			if (unmap_pml2_range(pml2, begin, begin + bytes)) {
-				pml3[i] = 0;
-				put |= put_page(page);
-			}
-		}
-		begin += bytes;
-	}
-	return put;
-}
-
 static void unmap_vma_range(struct mm *mm, virt_t begin, virt_t end)
 {
-	pte_t *pml4 = page_addr(mm->pt);
-
-	for (int i = pml4_index(begin); i != pml4_index(end); ++i) {
-		const pfn_t remain = (end - begin) >> PAGE_BITS;
-		const pfn_t to_unmap = MINU(remain, PML3_PAGES);
-		const virt_t bytes = (virt_t)PAGE_SIZE * to_unmap;
-		const pte_t pte = pml4[i];
-		const pfn_t pfn = pte_phys(pte) >> PAGE_BITS;
-
-		if ((pte & PTE_PRESENT)) {
-			struct page *pml3 = pfn2page(pfn);
-
-			if (unmap_pml3_range(pml3, begin, begin + bytes))
-				pml4[i] = 0;
-		}
-		begin += bytes;
-	}
+	unmap_range(page_addr(mm->pt), begin, (end - begin) >> PAGE_BITS);
 }
 
 static void __munmap(struct thread *thread, virt_t begin, virt_t end)
