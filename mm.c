@@ -49,15 +49,31 @@ static void free_mm(struct mm *mm)
 	kmem_cache_free(mm_cachep, mm);
 }
 
-static int anon_page_fault(struct thread *thread, struct vma *vma,
-			virt_t vaddr, int access)
+static unsigned long get_page_flags(int vma_flags)
 {
-	(void) thread;
-	(void) vma;
-	(void) vaddr;
-	(void) access;
+	return ((vma_flags & VMA_PERM_WRITE) != 0)
+				? (PTE_USER | PTE_WRITE)
+				: PTE_USER;
+}
 
-	return -1;
+static int anon_page_fault(struct vma *vma, virt_t vaddr, int access)
+{
+	if (access == VMA_ACCESS_WRITE && (vma->perm & VMA_PERM_WRITE) == 0)
+		return -EINVAL;
+
+	struct page *page = alloc_pages(0, NT_HIGH);
+
+	if (!page)
+		return -ENOMEM;
+
+	const int rc = map_range(page_addr(vma->mm->pt), vaddr,
+				page_paddr(get_page(page)), 1,
+				get_page_flags(vma->perm));
+
+	if (rc)
+		put_page(page);
+
+	return rc;
 }
 
 struct vma_iter {

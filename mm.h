@@ -8,13 +8,11 @@
 
 enum vma_perm {
 	VMA_PERM_WRITE = 1 << 0,
-	VMA_PERM_EXECUTE = 1 << 1
 };
 
 enum vma_access {
 	VMA_ACCESS_READ,
-	VMA_ACCESS_WRITE,
-	VMA_ACCESS_EXECUTE
+	VMA_ACCESS_WRITE
 };
 
 struct mm;
@@ -25,7 +23,7 @@ struct vma {
 	uintptr_t end;
 	int perm;
 	struct mm *mm;
-	int (*fault)(struct thread *, struct vma *, virt_t, int);
+	int (*fault)(struct vma *, virt_t, int);
 };
 
 struct mm {
