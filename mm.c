@@ -168,7 +168,20 @@ int mmap(virt_t begin, virt_t end, int perm)
 
 static void unmap_vma_range(struct mm *mm, virt_t begin, virt_t end)
 {
+	struct pages set;
+
+	gather_pages(page_addr(mm->pt), begin, (end - begin) >> PAGE_BITS);
 	unmap_range(page_addr(mm->pt), begin, (end - begin) >> PAGE_BITS);
+
+	struct list_head *head = &set->head;
+	struct list_head *ptr = head->next;
+
+	while (ptr != head) {
+		struct page *page = LIST_ENTRY(ptr, struct page, link);
+
+		ptr = ptr->next;
+		put_page(page);
+	}
 }
 
 static void __munmap(struct thread *thread, virt_t begin, virt_t end)
