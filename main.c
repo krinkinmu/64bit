@@ -5,12 +5,14 @@
 #include "memory.h"
 #include "paging.h"
 #include "serial.h"
+#include "error.h"
 #include "ramfs.h"
 #include "time.h"
 #include "misc.h"
 #include "ide.h"
 #include "vga.h"
 #include "vfs.h"
+#include "mm.h"
 
 static void test_function(void *dummy)
 {
@@ -32,11 +34,26 @@ static void test_threading(void)
 
 static void test_page_fault(void)
 {
-	const virt_t vaddr = BIT_CONST(32);
-	volatile char *ptr = (char *)vaddr;
+	DBG_INFO("Create readonly mapping");
+	const int rc = mmap(PAGE_SIZE, 2 * PAGE_SIZE, 0);
+
+	if (rc)
+		DBG_ERR("[%d-%d] read map failed with error %s",
+					PAGE_SIZE, 2 * PAGE_SIZE, errstr(rc));
+
+	DBG_INFO("Check zero page access");
+	const char *cptr = (const char *)PAGE_SIZE;
+
+	for (int i = 0; i != PAGE_SIZE; ++i) {
+		if (cptr[i] != 0)
+			DBG_ERR("Offset %d value %d", i, (int)cptr[i]);
+	}
+
+	DBG_INFO("Unmap readonly mapping");
+	munmap(PAGE_SIZE, 2 * PAGE_SIZE);
 
 	DBG_INFO("generate page fault");
-	*ptr = 13;
+	(void)(*((volatile const char *)cptr));
 	DBG_ERR("no page fault");
 }
 
