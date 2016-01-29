@@ -431,10 +431,9 @@ static struct fs_type ramfs_type = {
 
 void setup_ramfs(void)
 {
-	ramfs_node_cache = KMEM_CACHE(struct ramfs_node);
-	ramfs_entry_cache = KMEM_CACHE(struct ramfs_entry);
-
-	register_filesystem(&ramfs_type);
+	DBG_ASSERT((ramfs_node_cache = KMEM_CACHE(struct ramfs_node)) != 0);
+	DBG_ASSERT((ramfs_entry_cache = KMEM_CACHE(struct ramfs_entry)) != 0);
+	DBG_ASSERT(register_filesystem(&ramfs_type) == 0);
 
 #ifdef CONFIG_RAMFS_TEST
 	void ramfs_test(void);

@@ -749,7 +749,7 @@ int vfs_umount(const char *mount)
 
 void setup_vfs(void)
 {
-	fs_entry_cache = KMEM_CACHE(struct fs_entry);
+	DBG_ASSERT((fs_entry_cache = KMEM_CACHE(struct fs_entry)) != 0);
 
 	mutex_init(&fs_root_node.mux);
 	fs_root_node.ops = &fs_root_node_ops;

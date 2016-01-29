@@ -527,6 +527,8 @@ void setup_alloc(void)
 	kmem_small_cache_setup();
 	kmem_large_cache_setup();
 
-	for (int i = 0; i != KMEM_POOLS; ++i)
+	for (int i = 0; i != KMEM_POOLS; ++i) {
 		kmem_pool[i] = kmem_cache_create(kmem_size[i], sizeof(void *));
+		DBG_ASSERT(kmem_pool[i] != 0);
+	}
 }

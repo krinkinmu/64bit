@@ -90,4 +90,6 @@ struct scheduler round_robin = {
 };
 
 void setup_round_robin(void)
-{ rr_thread_cache = KMEM_CACHE(struct rr_thread); }
+{
+	DBG_ASSERT((rr_thread_cache = KMEM_CACHE(struct rr_thread)) != 0);
+}
