@@ -10,6 +10,7 @@
 
 static struct kmem_cache *mm_cachep;
 static struct kmem_cache *vma_cachep;
+static struct page *zero_page;
 
 static struct page *alloc_page_table(void)
 {
@@ -56,10 +57,76 @@ static unsigned long get_page_flags(int vma_flags)
 				: PTE_USER;
 }
 
+static struct page *copy_page(struct page *page)
+{
+	if (page->u.refcount == 1)
+		return get_page(page);
+
+	struct page *new = alloc_pages(0, NT_HIGH);
+
+	if (!new)
+		return 0;
+
+	void *dst = kmap(new, 1);
+
+	if (!dst) {
+		free_pages(new, 0);
+		return 0;
+	}
+
+	void *src = kmap(page, 1);
+
+	if (!src) {
+		kunmap(dst);
+		free_pages(new, 0);
+		return 0;
+	}
+
+	memcpy(dst, src, PAGE_SIZE);
+	kunmap(src);
+	kunmap(dst);
+
+	return get_page(new);
+}
+
 static int anon_page_fault(struct vma *vma, virt_t vaddr, int access)
 {
 	if (access == VMA_ACCESS_WRITE && (vma->perm & VMA_PERM_WRITE) == 0)
 		return -EINVAL;
+
+	if (access == VMA_ACCESS_READ) {
+		const int rc = map_range(page_addr(vma->mm->pt),
+					vaddr,
+					page_paddr(get_page(zero_page)),
+					1, 0);
+
+		if (rc)
+			put_page(zero_page);
+
+		return rc;
+	}
+
+	struct pages set;
+
+	if (gather_pages(page_addr(vma->mm->pt), vaddr, 1, &set) != 0) {
+		struct page *old = TREE_ENTRY(list_first(&set.head),
+					struct page, link);
+		struct page *new = copy_page(old);
+
+		if (!new)
+			return -ENOMEM;
+
+		const int rc = map_range(page_addr(vma->mm->pt),
+					vaddr, page_paddr(new), 1,
+					get_page_flags(vma->perm));
+
+		if (rc)
+			put_page(new);
+		else
+			put_page(old);
+
+		return rc;
+	}
 
 	struct page *page = alloc_pages(0, NT_HIGH);
 
@@ -67,8 +134,7 @@ static int anon_page_fault(struct vma *vma, virt_t vaddr, int access)
 		return -ENOMEM;
 
 	const int rc = map_range(page_addr(vma->mm->pt),
-				vaddr & (PAGE_SIZE - 1),
-				page_paddr(get_page(page)), 1,
+				vaddr, page_paddr(get_page(page)), 1,
 				get_page_flags(vma->perm));
 
 	if (rc)
@@ -119,9 +185,15 @@ int mm_page_fault(struct thread *thread, virt_t vaddr, int access)
 	if (!mm)
 		return -EINVAL;
 
+	vaddr &= ~((virt_t)(PAGE_SIZE - 1));
+
 	struct vma_iter iter;
 
-	if (!lookup_vma(mm, vaddr, vaddr, &iter))
+	/*
+	 * lookup_vma won't work with empty regions, so +1.
+	 * Seems like a dirty hack.
+	 */
+	if (!lookup_vma(mm, vaddr, vaddr + 1, &iter))
 		return -EINVAL;
 
 	return iter.vma->fault(iter.vma, vaddr, access);
@@ -170,10 +242,11 @@ static void unmap_vma_range(struct mm *mm, virt_t begin, virt_t end)
 {
 	struct pages set;
 
-	gather_pages(page_addr(mm->pt), begin, (end - begin) >> PAGE_BITS);
+	gather_pages(page_addr(mm->pt), begin, (end - begin) >> PAGE_BITS,
+			&set);
 	unmap_range(page_addr(mm->pt), begin, (end - begin) >> PAGE_BITS);
 
-	struct list_head *head = &set->head;
+	struct list_head *head = &set.head;
 	struct list_head *ptr = head->next;
 
 	while (ptr != head) {
@@ -273,6 +346,9 @@ void release_thread_memory(struct thread *thread)
 
 void setup_mm(void)
 {
-	mm_cachep = KMEM_CACHE(struct mm);
-	vma_cachep = KMEM_CACHE(struct vma);
+	DBG_ASSERT((mm_cachep = KMEM_CACHE(struct mm)) != 0);
+	DBG_ASSERT((vma_cachep = KMEM_CACHE(struct vma)) != 0);
+	DBG_ASSERT((zero_page = alloc_pages(0, NT_LOW)) != 0);
+	memset(page_addr(zero_page), 0, PAGE_SIZE);
+	zero_page->u.refcount = 1;
 }
