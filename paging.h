@@ -84,9 +84,10 @@ static inline void put_page(struct page *page)
 
 struct pages {
 	struct list_head head;
+	size_t count;
 };
 
-void gather_pages(pte_t *pml4, virt_t virt, pfn_t pages, struct pages *set);
+size_t gather_pages(pte_t *pml4, virt_t virt, pfn_t pages, struct pages *set);
 int map_range(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
 			unsigned long flags);
 int unmap_range(pte_t *pml4, virt_t virt, pfn_t pages);

@@ -314,6 +314,7 @@ static void gather_pml1(pte_t *pml1, virt_t virt, pfn_t pages,
 		struct page *page = pfn2page(paddr >> PAGE_BITS);
 
 		list_add_tail(&page->link, &set->head);
+		++set->count;
 	}
 }
 
@@ -371,10 +372,12 @@ static void gather_pml4(pte_t *pml4, virt_t virt, pfn_t pages,
 	}
 }
 
-void gather_pages(pte_t *pml4, virt_t virt, pfn_t pages, struct pages *set)
+size_t gather_pages(pte_t *pml4, virt_t virt, pfn_t pages, struct pages *set)
 {
 	list_init(&set->head);
+	set->count = 0;
 	gather_pml4(pml4, virt, pages, set);
+	return set->count;
 }
 
 #define KMAP_ORDERS 16
@@ -569,6 +572,9 @@ void setup_paging(void)
 	pte_t *opt = kernel_virt(opaddr);
 
 	struct page *page = alloc_page();
+
+	DBG_ASSERT(page != 0);
+
 	const phys_t paddr = page_paddr(page);
 	pte_t *pt = kernel_virt(paddr);
 
