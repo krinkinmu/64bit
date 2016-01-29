@@ -1,6 +1,7 @@
 #ifndef __PAGING_H__
 #define __PAGING_H__
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "kernel.h"
@@ -14,6 +15,15 @@
 
 typedef uint64_t  pte_t;
 typedef uintptr_t virt_t;
+
+static inline bool pte_present(pte_t pte)
+{ return (pte & PTE_PRESENT) != 0; }
+
+static inline bool pte_write(pte_t pte)
+{ return (pte & PTE_WRITE) != 0; }
+
+static inline bool pte_user(pte_t pte)
+{ return (pte & PTE_USER) != 0; }
 
 
 #define PT_SIZE       (PAGE_SIZE / sizeof(pte_t))

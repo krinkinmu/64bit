@@ -5,12 +5,9 @@
 #include "list.h"
 
 
-#define PTE_KERNEL PTE_WRITE
-#define PTE_FLAGS  BITS_CONST(11, 0)
-
-
-static unsigned long page_common_flags(unsigned long old, unsigned long new)
-{ return (old | new) & PTE_FLAGS; }
+#define PTE_KERNEL   PTE_WRITE
+#define PTE_PGTFLAGS (PTE_WRITE | PTE_USER | PTE_PRESENT)
+#define PTE_FLAGS    BITS_CONST(11, 0)
 
 static struct page *alloc_page(void)
 {
@@ -37,7 +34,7 @@ static int pml1_map(struct page *parent, pte_t *pml1,
 		pml1[i] = phys | flags;
 		flush_tlb_page(virt);
 
-		if ((pte & PTE_PRESENT) == 0)
+		if (!pte_present(pte))
 			get_page(parent);
 
 		phys += PAGE_SIZE;
@@ -54,7 +51,7 @@ static void pml1_unmap(struct page *parent, pte_t *pml1,
 	const int entries = MINU(index + pages, PT_SIZE);
 
 	for (int i = index; i != entries; ++i) {
-		if ((pml1[i] & PTE_PRESENT) != 0) {
+		if (pte_present(pml1[i])) {
 			pml1[i] = 0;
 			put_page(parent);
 			flush_tlb_page(virt);
@@ -69,7 +66,7 @@ static int pml2_map(struct page *parent, pte_t *pml2,
 {
 	for (int i = pml2_index(virt); pages && i != PT_SIZE; ++i) {
 		const pte_t pte = pml2[i];
-		struct page *page = ((pte & PTE_PRESENT) == 0)
+		struct page *page = !pte_present(pte)
 				? get_page(alloc_page())
 				: get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
 
@@ -82,10 +79,9 @@ static int pml2_map(struct page *parent, pte_t *pml2,
 		const phys_t bytes = to_map << PAGE_BITS;
 		const int rc = pml1_map(page, pt, virt, phys, to_map, flags);
 
-		if (page->u.refcount > 1) {
-			if ((pte & PTE_PRESENT) == 0)
-				get_page(parent);
-			pml2[i] = paddr | page_common_flags(pte, flags);
+		if (page->u.refcount > 1 && !pte_present(pte)) {
+			get_page(parent);
+			pml2[i] = paddr | PTE_PGTFLAGS;
 		}
 
 		put_page(page);
@@ -109,7 +105,7 @@ static void pml2_unmap(struct page *parent, pte_t *pml2,
 		const pfn_t to_unmap = MINU(pages, PML1_PAGES);
 		const phys_t bytes = to_unmap << PAGE_BITS;
 
-		if ((pte & PTE_PRESENT) == 0) {
+		if (!pte_present(pte)) {
 			virt += bytes;
 			pages -= to_unmap;
 			continue;
@@ -137,7 +133,7 @@ static int pml3_map(struct page *parent, pte_t *pml3,
 {
 	for (int i = pml3_index(virt); pages && i != PT_SIZE; ++i) {
 		const pte_t pte = pml3[i];
-		struct page *page = ((pte & PTE_PRESENT) == 0)
+		struct page *page = !pte_present(pte)
 				? get_page(alloc_page())
 				: get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
 
@@ -150,11 +146,9 @@ static int pml3_map(struct page *parent, pte_t *pml3,
 		const phys_t bytes = to_map << PAGE_BITS;
 		const int rc = pml2_map(page, pt, virt, phys, to_map, flags);
 
-		if (page->u.refcount > 1) {
-			/* if we created new entry then get_page */
-			if ((pte & PTE_PRESENT) == 0)
-				get_page(parent);
-			pml3[i] = paddr | page_common_flags(pte, flags);
+		if (page->u.refcount > 1 && !pte_present(pte)) {
+			get_page(parent);
+			pml3[i] = paddr | PTE_PGTFLAGS;
 		}
 
 		put_page(page);
@@ -178,7 +172,7 @@ static void pml3_unmap(struct page *parent, pte_t *pml3,
 		const pfn_t to_unmap = MINU(pages, PML2_PAGES);
 		const phys_t bytes = to_unmap << PAGE_BITS;
 
-		if ((pte & PTE_PRESENT) == 0) {
+		if (!pte_present(pte)) {
 			virt += bytes;
 			pages -= to_unmap;
 			continue;
@@ -205,7 +199,7 @@ static int pml4_map(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
 {
 	for (int i = pml4_index(virt); pages && i != PT_SIZE; ++i) {
 		const pte_t pte = pml4[i];
-		struct page *page = ((pte & PTE_PRESENT) == 0)
+		struct page *page = !pte_present(pte)
 				? get_page(alloc_page())
 				: get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
 
@@ -218,8 +212,8 @@ static int pml4_map(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
 		const phys_t bytes = to_map << PAGE_BITS;
 		const int rc = pml3_map(page, pt, virt, phys, to_map, flags);
 
-		if (page->u.refcount > 1)
-			pml4[i] = paddr | page_common_flags(pte, flags);
+		if (page->u.refcount > 1 && !pte_present(pte))
+			pml4[i] = paddr | PTE_PGTFLAGS;
 
 		put_page(page);
 
@@ -241,7 +235,7 @@ static void pml4_unmap(pte_t *pml4, virt_t virt, pfn_t pages)
 		const pfn_t to_unmap = MINU(pages, PML3_PAGES);
 		const phys_t bytes = to_unmap << PAGE_BITS;
 
-		if ((pte & PTE_PRESENT) == 0) {
+		if (!pte_present(pte)) {
 			virt += bytes;
 			pages -= to_unmap;
 			continue;
@@ -436,7 +430,7 @@ static void pml2_pin(pte_t *pml2, virt_t virt, pfn_t pages)
 		const pfn_t to_pin = MINU(pages, PML1_PAGES);
 		const phys_t bytes = to_pin << PAGE_BITS;
 
-		if ((pte & PTE_PRESENT) == 0) {
+		if (!pte_present(pte)) {
 			virt += bytes;
 			pages -= to_pin;
 			continue;
@@ -455,7 +449,7 @@ static void pml3_pin(pte_t *pml3, virt_t virt, pfn_t pages)
 		const pfn_t to_pin = MINU(pages, PML2_PAGES);
 		const phys_t bytes = to_pin << PAGE_BITS;
 
-		if ((pte & PTE_PRESENT) == 0) {
+		if (!pte_present(pte)) {
 			virt += bytes;
 			pages -= to_pin;
 			continue;
@@ -477,7 +471,7 @@ static void pml4_pin(pte_t *pml4, virt_t virt, pfn_t pages)
 		const pfn_t to_pin = MINU(pages, PML3_PAGES);
 		const phys_t bytes = to_pin << PAGE_BITS;
 
-		if ((pte & PTE_PRESENT) == 0) {
+		if (!pte_present(pte)) {
 			virt += bytes;
 			pages -= to_pin;
 			continue;
