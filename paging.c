@@ -67,8 +67,8 @@ static int pml2_map(struct page *parent, pte_t *pml2,
 	for (int i = pml2_index(virt); pages && i != PT_SIZE; ++i) {
 		const pte_t pte = pml2[i];
 		struct page *page = !pte_present(pte)
-				? get_page(alloc_page())
-				: get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
+			? get_page(alloc_page())
+			: get_page(pfn2page(pte_paddr(pte) >> PAGE_BITS));
 
 		if (!page)
 			return -ENOMEM;
@@ -111,7 +111,8 @@ static void pml2_unmap(struct page *parent, pte_t *pml2,
 			continue;
 		}
 
-		struct page *page = get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
+		struct page *page =
+				get_page(pfn2page(pte_paddr(pte) >> PAGE_BITS));
 		pte_t *pt = page_addr(page);
 
 		pml1_unmap(page, pt, virt, to_unmap);
@@ -134,8 +135,8 @@ static int pml3_map(struct page *parent, pte_t *pml3,
 	for (int i = pml3_index(virt); pages && i != PT_SIZE; ++i) {
 		const pte_t pte = pml3[i];
 		struct page *page = !pte_present(pte)
-				? get_page(alloc_page())
-				: get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
+			? get_page(alloc_page())
+			: get_page(pfn2page(pte_paddr(pte) >> PAGE_BITS));
 
 		if (!page)
 			return -ENOMEM;
@@ -178,7 +179,8 @@ static void pml3_unmap(struct page *parent, pte_t *pml3,
 			continue;
 		}
 
-		struct page *page = get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
+		struct page *page =
+				get_page(pfn2page(pte_paddr(pte) >> PAGE_BITS));
 		pte_t *pt = page_addr(page);
 
 		pml2_unmap(page, pt, virt, to_unmap);
@@ -200,8 +202,8 @@ static int pml4_map(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
 	for (int i = pml4_index(virt); pages && i != PT_SIZE; ++i) {
 		const pte_t pte = pml4[i];
 		struct page *page = !pte_present(pte)
-				? get_page(alloc_page())
-				: get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
+			? get_page(alloc_page())
+			: get_page(pfn2page(pte_paddr(pte) >> PAGE_BITS));
 
 		if (!page)
 			return -ENOMEM;
@@ -241,7 +243,8 @@ static void pml4_unmap(pte_t *pml4, virt_t virt, pfn_t pages)
 			continue;
 		}
 
-		struct page *page = get_page(pfn2page((pfn_t)pte >> PAGE_BITS));
+		struct page *page =
+				get_page(pfn2page(pte_paddr(pte) >> PAGE_BITS));
 		pte_t *pt = page_addr(page);
 
 		pml3_unmap(page, pt, virt, to_unmap);
@@ -298,6 +301,80 @@ int unmap_range(pte_t *pml4, virt_t virt, pfn_t pages)
 	pml4_unmap(pml4, virt, pages);
 
 	return 0;
+}
+
+static void gather_pml1(pte_t *pml1, virt_t virt, pfn_t pages,
+			struct pages *set)
+{
+	for (int i = pml1_index(virt); pages && i != PT_SIZE; ++i, --pages) {
+		if (!pte_present(pml1[i]))
+			continue;
+
+		const phys_t paddr = pte_paddr(pml1[i]);
+		struct page *page = pfn2page(paddr >> PAGE_BITS);
+
+		list_add_tail(&page->link, &set->head);
+	}
+}
+
+static void gather_pml2(pte_t *pml2, virt_t virt, pfn_t pages,
+			struct pages *set)
+{
+	for (int i = pml2_index(virt); pages && i != PT_SIZE; ++i) {
+		const pfn_t to_gather = MINU(pages, PML1_PAGES);
+
+		if (pte_present(pml2[i])) {
+			const phys_t paddr = pte_paddr(pml2[i]);
+			struct page *page = pfn2page(paddr >> PAGE_BITS);
+
+			gather_pml1(page_addr(page), virt, to_gather, set);
+		}
+
+		virt += to_gather << PAGE_BITS;
+		pages -= to_gather;
+	}
+}
+
+static void gather_pml3(pte_t *pml3, virt_t virt, pfn_t pages,
+			struct pages *set)
+{
+	for (int i = pml3_index(virt); pages && i != PT_SIZE; ++i) {
+		const pfn_t to_gather = MINU(pages, PML2_PAGES);
+
+		if (pte_present(pml3[i])) {
+			const phys_t paddr = pte_paddr(pml3[i]);
+			struct page *page = pfn2page(paddr >> PAGE_BITS);
+
+			gather_pml2(page_addr(page), virt, to_gather, set);
+		}
+
+		virt += to_gather << PAGE_BITS;
+		pages -= to_gather;
+	}
+}
+
+static void gather_pml4(pte_t *pml4, virt_t virt, pfn_t pages,
+			struct pages *set)
+{
+	for (int i = pml4_index(virt); pages && i != PT_SIZE; ++i) {
+		const pfn_t to_gather = MINU(pages, PML3_PAGES);
+
+		if (pte_present(pml4[i])) {
+			const phys_t paddr = pte_paddr(pml4[i]);
+			struct page *page = pfn2page(paddr >> PAGE_BITS);
+
+			gather_pml3(page_addr(page), virt, to_gather, set);
+		}
+
+		virt += to_gather << PAGE_BITS;
+		pages -= to_gather;
+	}
+}
+
+void gather_pages(pte_t *pml4, virt_t virt, pfn_t pages, struct pages *set)
+{
+	list_init(&set->head);
+	gather_pml4(pml4, virt, pages, set);
 }
 
 #define KMAP_ORDERS 16

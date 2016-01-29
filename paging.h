@@ -6,6 +6,7 @@
 
 #include "kernel.h"
 #include "memory.h"
+#include "list.h"
 
 
 #define PTE_PRESENT   (1ul << 0)
@@ -24,6 +25,9 @@ static inline bool pte_write(pte_t pte)
 
 static inline bool pte_user(pte_t pte)
 { return (pte & PTE_USER) != 0; }
+
+static inline phys_t pte_paddr(pte_t pte)
+{ return (phys_t)(pte & BITS_CONST(47, 12)); }
 
 
 #define PT_SIZE       (PAGE_SIZE / sizeof(pte_t))
@@ -78,6 +82,11 @@ static inline void put_page(struct page *page)
 		free_pages(page, 0);
 }
 
+struct pages {
+	struct list_head head;
+};
+
+void gather_pages(pte_t *pml4, virt_t virt, pfn_t pages, struct pages *set);
 int map_range(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
 			unsigned long flags);
 int unmap_range(pte_t *pml4, virt_t virt, pfn_t pages);
