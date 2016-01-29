@@ -112,6 +112,7 @@ struct memory_node {
 	struct list_head free_list[BUDDY_ORDERS];
 };
 
+void memory_free_region(unsigned long long addr, unsigned long long size);
 
 struct memory_node *memory_node_get(int id);
 struct page *pfn2page(pfn_t pfn);

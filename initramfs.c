@@ -1,4 +1,5 @@
 #include "initramfs.h"
+#include "paging.h"
 #include "stdlib.h"
 #include "string.h"
 #include "error.h"
@@ -133,4 +134,6 @@ void setup_initramfs(void)
 
 	parse_cpio((const char *)((uintptr_t)initrd_begin),
 				initrd_end - initrd_begin);
+	memory_free_region(initrd_begin, initrd_end - initrd_begin);
+	*((pte_t *)load_pml4()) = 0; // unmap lower 4G
 }

@@ -129,7 +129,7 @@ static void __memory_free_region(unsigned long long begin,
 	}
 }
 
-static void memory_free_region(unsigned long long addr, unsigned long long size)
+void memory_free_region(unsigned long long addr, unsigned long long size)
 {
 	const unsigned long long begin = ALIGN(addr, PAGE_SIZE);
 	const unsigned long long end = MINU(ALIGN_DOWN(addr + size, PAGE_SIZE),
