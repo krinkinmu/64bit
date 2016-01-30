@@ -142,6 +142,8 @@ static int page_fault_handler(struct interrupt_frame *ctx)
 	if (!thread)
 		return -EINVAL;
 
+	local_irq_enable();
+
 	return mm_page_fault(thread, vaddr, access);
 }
 
