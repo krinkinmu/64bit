@@ -93,7 +93,7 @@ int map_range(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
 			unsigned long flags);
 int unmap_range(pte_t *pml4, virt_t virt, pfn_t pages);
 
-void *kmap(struct page *pages, pfn_t count);
+void *kmap(struct page **pages, size_t count);
 void kunmap(void *vaddr);
 void setup_paging(void);
 

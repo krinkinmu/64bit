@@ -470,7 +470,7 @@ static struct kmap_range *kmap_alloc_range(pfn_t pages)
 	return 0;
 }
 
-void *kmap(struct page *pages, pfn_t count)
+void *kmap(struct page **pages, size_t count)
 {
 	struct kmap_range *range = kmap_alloc_range(count);
 
@@ -480,8 +480,12 @@ void *kmap(struct page *pages, pfn_t count)
 	const virt_t vaddr = kmap2virt(range);
 	pte_t *pt = va(load_pml4());
 
-	map_range(pt, vaddr, page2pfn(pages) << PAGE_BITS,
-				count, PTE_KERNEL);
+	for (size_t i = 0; i != count; ++i) {
+		struct page *page = pages[i];
+
+		map_range(pt, vaddr, page_paddr(page), 1, PTE_KERNEL);
+	}
+
 	return (void *)vaddr;
 }
 
