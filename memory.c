@@ -61,10 +61,10 @@ static void __memory_node_add(enum node_type type, unsigned long begin,
 	for (int i = 0; i != BUDDY_ORDERS; ++i)
 		list_init(&node->free_list[i]);
 
-	const long long mmap = balloc_alloc_aligned(PAGE_SIZE, KERNEL_SIZE,
+	const long long mmap = balloc_alloc_aligned(PAGE_SIZE, LOWMEM_SIZE,
 				sizeof(struct page) * pages, PAGE_SIZE);
 
-	node->mmap = kernel_virt(mmap);
+	node->mmap = va(mmap);
 	for (pfn_t i = 0; i != pages; ++i) {
 		struct page *page = &node->mmap[i];
 
@@ -87,11 +87,11 @@ static void memory_node_add(unsigned long long addr, unsigned long long size)
 	if (begin >= end)
 		return;
 
-	if (begin < KERNEL_SIZE && end > KERNEL_SIZE) {
-		__memory_node_add(NT_LOW, begin, KERNEL_SIZE);
-		__memory_node_add(NT_HIGH, KERNEL_SIZE, end);
+	if (begin < LOWMEM_SIZE && end > LOWMEM_SIZE) {
+		__memory_node_add(NT_LOW, begin, LOWMEM_SIZE);
+		__memory_node_add(NT_HIGH, LOWMEM_SIZE, end);
 	} else {
-		const enum node_type type = (end <= KERNEL_SIZE)
+		const enum node_type type = (end <= LOWMEM_SIZE)
 					? NT_LOW : NT_HIGH;
 
 		__memory_node_add(type, begin, end);
@@ -138,9 +138,9 @@ void memory_free_region(unsigned long long addr, unsigned long long size)
 	if (begin >= end)
 		return;
 
-	if (begin < KERNEL_SIZE && end > KERNEL_SIZE) {
-		__memory_free_region(begin, KERNEL_SIZE);
-		__memory_free_region(KERNEL_SIZE, end);
+	if (begin < LOWMEM_SIZE && end > LOWMEM_SIZE) {
+		__memory_free_region(begin, LOWMEM_SIZE);
+		__memory_free_region(LOWMEM_SIZE, end);
 	} else {
 		__memory_free_region(begin, end);
 	}
@@ -220,6 +220,18 @@ pfn_t page2pfn(const struct page * const page)
 	const struct memory_node * const node = page_node(page);
 
 	return node->begin_pfn + node_pfn(node, page);
+}
+
+pfn_t max_pfns(void)
+{
+	pfn_t max = 0;
+
+	for (int i = 0; i != memory_nodes; ++i) {
+		struct memory_node *node = memory_node_get(i);
+
+		max = MAXU(max, node->end_pfn);
+	}
+	return max;
 }
 
 static pfn_t buddy_pfn(pfn_t pfn, int order)

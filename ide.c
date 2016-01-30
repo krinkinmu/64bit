@@ -222,21 +222,13 @@ static void handle_bio(struct bio *bio)
 		return;
 	}
 
-	char *page = kmap(bio->map.page, 1);
-
-	if (!page) {
-		finish_bio(bio, BIO_FAILED);
-		return;
-	}
-
+	char *page = page_addr(bio->map.page);
 	const unsigned long long lba = bio->map.sector;
 	const size_t count = bio->map.length / IDE_SECTOR_SIZE;
 	void *data = page + bio->map.offset;
 	const int rc = bio->dir == BIO_READ
 				? read_sectors(data, lba, count)
 				: write_sectors(data, lba, count);
-
-	kunmap(page);
 
 	finish_bio(bio, rc == 0 ? BIO_FINISHED : BIO_FAILED);
 }

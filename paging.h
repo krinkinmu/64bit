@@ -12,6 +12,7 @@
 #define PTE_PRESENT   (1ul << 0)
 #define PTE_WRITE     (1ul << 1)
 #define PTE_USER      (1ul << 2)
+#define PTE_LARGE     (1ul << 7)
 
 
 typedef uint64_t  pte_t;

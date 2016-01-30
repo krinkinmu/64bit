@@ -308,7 +308,7 @@ static int ramfs_write(struct fs_file *file, const char *data, size_t size)
 	}
 
 	struct page *page = LIST_ENTRY(ptr, struct page, link);
-	char *vaddr = kmap(page, 1);
+	char *vaddr = page_addr(page);
 
 	if (!vaddr) {
 		spin_unlock_irqrestore(&fs_node->lock, enabled);
@@ -316,7 +316,6 @@ static int ramfs_write(struct fs_file *file, const char *data, size_t size)
 	}
 
 	memcpy(vaddr + off, data, sz);
-	kunmap(vaddr);
 	file->offset += sz;
 	file->node->size = MAX(file->offset, file->node->size);
 	spin_unlock_irqrestore(&fs_node->lock, enabled);
@@ -352,7 +351,7 @@ static int ramfs_read(struct fs_file *file, char *data, size_t size)
 	}
 
 	struct page *page = LIST_ENTRY(ptr, struct page, link);
-	char *vaddr = kmap(page, 1);
+	char *vaddr = page_addr(page);
 
 	if (!vaddr) {
 		spin_unlock_irqrestore(&fs_node->lock, enabled);
@@ -360,7 +359,6 @@ static int ramfs_read(struct fs_file *file, char *data, size_t size)
 	}
 
 	memcpy(data, vaddr + off, sz);
-	kunmap(vaddr);
 	file->offset += sz;
 	spin_unlock_irqrestore(&fs_node->lock, enabled);
 

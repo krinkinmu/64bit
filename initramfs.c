@@ -132,8 +132,6 @@ void setup_initramfs(void)
 		while (1);
 	}
 
-	parse_cpio((const char *)((uintptr_t)initrd_begin),
-				initrd_end - initrd_begin);
+	parse_cpio(va((phys_t)initrd_begin), initrd_end - initrd_begin);
 	memory_free_region(initrd_begin, initrd_end - initrd_begin);
-	*((pte_t *)load_pml4()) = 0; // unmap lower 4G
 }

@@ -74,7 +74,7 @@ static int pml2_map(struct page *parent, pte_t *pml2,
 			return -ENOMEM;
 
 		phys_t paddr = page_paddr(page);
-		pte_t *pt = kernel_virt(paddr);
+		pte_t *pt = va(paddr);
 		const pfn_t to_map = MINU(pages, PML1_PAGES);
 		const phys_t bytes = to_map << PAGE_BITS;
 		const int rc = pml1_map(page, pt, virt, phys, to_map, flags);
@@ -142,7 +142,7 @@ static int pml3_map(struct page *parent, pte_t *pml3,
 			return -ENOMEM;
 
 		phys_t paddr = page_paddr(page);
-		pte_t *pt = kernel_virt(paddr);
+		pte_t *pt = va(paddr);
 		const pfn_t to_map = MINU(pages, PML2_PAGES);
 		const phys_t bytes = to_map << PAGE_BITS;
 		const int rc = pml2_map(page, pt, virt, phys, to_map, flags);
@@ -209,7 +209,7 @@ static int pml4_map(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
 			return -ENOMEM;
 
 		phys_t paddr = page_paddr(page);
-		pte_t *pt = kernel_virt(paddr);
+		pte_t *pt = va(paddr);
 		const pfn_t to_map = MINU(pages, PML3_PAGES);
 		const phys_t bytes = to_map << PAGE_BITS;
 		const int rc = pml3_map(page, pt, virt, phys, to_map, flags);
@@ -478,7 +478,7 @@ void *kmap(struct page *pages, pfn_t count)
 		return 0;
 
 	const virt_t vaddr = kmap2virt(range);
-	pte_t *pt = kernel_virt(load_pml4());
+	pte_t *pt = va(load_pml4());
 
 	map_range(pt, vaddr, page2pfn(pages) << PAGE_BITS,
 				count, PTE_KERNEL);
@@ -490,7 +490,7 @@ void kunmap(void *vaddr)
 	struct kmap_range *range = virt2kmap((virt_t)vaddr);
 	const pfn_t count = range->pages;
 
-	pte_t *pt = kernel_virt(load_pml4());
+	pte_t *pt = va(load_pml4());
 	unmap_range(pt, (virt_t)vaddr, count);
 	kmap_free_range(range, range->pages);
 }
@@ -566,21 +566,101 @@ static void pml4_pin(pte_t *pml4, virt_t virt, pfn_t pages)
 	}
 }
 
+static int pml2_map_huge(pte_t *pml2, virt_t virt, phys_t phys, pfn_t pages,
+			unsigned long flags)
+{
+	for (int i = pml2_index(virt); pages && i != PT_SIZE; ++i) {
+		pml2[i] = phys | flags;
+		flush_tlb_page(virt);
+		phys += PML1_PAGES << PAGE_BITS;
+		virt += PML1_PAGES << PAGE_BITS;
+		pages -= MINU(PML1_PAGES, pages);
+	}
+
+	return 0;
+}
+
+static int pml3_map_huge(pte_t *pml3, virt_t virt, phys_t phys, pfn_t pages,
+			unsigned long flags)
+{
+	for (int i = pml3_index(virt); pages && i != PT_SIZE; ++i) {
+		struct page *page = alloc_page();
+
+		if (!page)
+			return -ENOMEM;
+
+		phys_t paddr = page_paddr(page);
+		pte_t *pt = va(paddr);
+		const pfn_t to_map = MINU(pages, PML2_PAGES);
+		const phys_t bytes = to_map << PAGE_BITS;
+		const int rc = pml2_map_huge(pt, virt, phys, to_map, flags);
+
+		if (rc)
+			return rc;
+
+		pml3[i] = paddr | PTE_PGTFLAGS;
+		virt += bytes;
+		phys += bytes;
+		pages -= to_map;
+	}
+
+	return 0;
+}
+
+static int pml4_map_huge(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
+			unsigned long flags)
+{
+	for (int i = pml4_index(virt); pages && i != PT_SIZE; ++i) {
+		struct page *page = alloc_page();
+
+		if (!page)
+			return -ENOMEM;
+
+		phys_t paddr = page_paddr(page);
+		pte_t *pt = va(paddr);
+		const pfn_t to_map = MINU(pages, PML3_PAGES);
+		const phys_t bytes = to_map << PAGE_BITS;
+		const int rc = pml3_map_huge(pt, virt, phys, to_map, flags);
+
+		if (rc)
+			return rc;
+
+		pml4[i] = paddr | PTE_PGTFLAGS;
+		virt += bytes;
+		phys += bytes;
+		pages -= to_map;
+	}
+
+	return 0;
+}
+
+static int setup_fixed_mapping(pte_t *pml4)
+{
+	const pfn_t pfns = max_pfns();
+	const unsigned long flags = PTE_KERNEL | PTE_PRESENT | PTE_LARGE;
+
+	return pml4_map_huge(pml4, HIGH_BASE, PHYSICAL_BASE, pfns, flags) == 0;	
+}
+
+static int setup_kernel_mapping(pte_t *pml4)
+{
+	const unsigned long flags = PTE_KERNEL | PTE_PRESENT;
+
+	return pml4_map(pml4, VIRTUAL_BASE, PHYSICAL_BASE,
+				KERNEL_PAGES + KMAP_PAGES, flags) == 0;
+}
+
 void setup_paging(void)
 {
-	const phys_t opaddr = load_pml4();
-	pte_t *opt = kernel_virt(opaddr);
-
 	struct page *page = alloc_page();
 
 	DBG_ASSERT(page != 0);
 
 	const phys_t paddr = page_paddr(page);
-	pte_t *pt = kernel_virt(paddr);
+	pte_t *pt = va(paddr);
 
-	pt[0] = opt[0]; // preserve lower 4GB identity mapping for initramfs
-	DBG_ASSERT(map_range(pt, VIRTUAL_BASE, PHYSICAL_BASE,
-				KERNEL_PAGES + KMAP_PAGES, PTE_KERNEL) == 0);
+	DBG_ASSERT(setup_fixed_mapping(pt));
+	DBG_ASSERT(setup_kernel_mapping(pt));
 	pml4_pin(pt, VIRTUAL_BASE, KERNEL_PAGES + KMAP_PAGES);
 	store_pml4(paddr);
 	setup_kmap();

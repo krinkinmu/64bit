@@ -21,6 +21,7 @@
 #define PADDR_BITS        48
 
 #define VIRTUAL_BASE      0xffffffff80000000ul
+#define HIGH_BASE         0xffff800000000000ul
 #define PHYSICAL_BASE     0x0000000000000000ul
 #define MAX_PHYS_SIZE     BIT_CONST(36)       // max 0.5GB of page structs
 
@@ -36,6 +37,7 @@
 #define KMAP_SIZE 512 * 1024 * 1024
 #endif
 
+#define LOWMEM_SIZE       KERNEL_SIZE
 #define KERNEL_PAGES      (KERNEL_SIZE / PAGE_SIZE)
 #define KMAP_PAGES        (KMAP_SIZE / PAGE_SIZE)
 
@@ -48,6 +50,8 @@ typedef uintptr_t phys_t;
 
 #define KERNEL_PHYS(x)  ((phys_t)(x) - VIRTUAL_BASE)
 #define KERNEL_VIRT(x)  ((void *)((phys_t)(x) + VIRTUAL_BASE))
+#define PA(x)           ((phys_t)(x) - HIGH_BASE)
+#define VA(x)           ((void *)((phys_t)(x) + HIGH_BASE))
 
 
 static inline phys_t kernel_phys(const void *vaddr)
@@ -55,6 +59,12 @@ static inline phys_t kernel_phys(const void *vaddr)
 
 static inline void *kernel_virt(phys_t paddr)
 { return KERNEL_VIRT(paddr); }
+
+static inline phys_t pa(const void *vaddr)
+{ return PA(vaddr); }
+
+static inline void *va(phys_t paddr)
+{ return VA(paddr); }
 
 
 struct memory_node;
@@ -115,6 +125,7 @@ struct memory_node {
 void memory_free_region(unsigned long long addr, unsigned long long size);
 
 struct memory_node *memory_node_get(int id);
+pfn_t max_pfns(void);
 struct page *pfn2page(pfn_t pfn);
 pfn_t page2pfn(const struct page * const page);
 struct page *alloc_pages_node(int order, struct memory_node *node);
@@ -129,7 +140,7 @@ static inline phys_t page_paddr(struct page *page)
 { return (phys_t)page2pfn(page) << PAGE_BITS; }
 
 static inline void *page_addr(struct page *page)
-{ return kernel_virt(page_paddr(page)); }
+{ return va(page_paddr(page)); }
 
 void setup_memory(void);
 void setup_buddy(void);

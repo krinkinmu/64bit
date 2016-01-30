@@ -67,24 +67,10 @@ static struct page *copy_page(struct page *page)
 	if (!new)
 		return 0;
 
-	void *dst = kmap(new, 1);
-
-	if (!dst) {
-		free_pages(new, 0);
-		return 0;
-	}
-
-	void *src = kmap(page, 1);
-
-	if (!src) {
-		kunmap(dst);
-		free_pages(new, 0);
-		return 0;
-	}
+	void *dst = page_addr(new);
+	void *src = page_addr(page);
 
 	memcpy(dst, src, PAGE_SIZE);
-	kunmap(src);
-	kunmap(dst);
 
 	return get_page(new);
 }
@@ -315,7 +301,7 @@ int setup_thread_memory(struct thread *thread)
 	 * kernel part is shared between the all threads, so we need to
 	 * copy at least kernel part of page table.
 	 */
-	memcpy(page_addr(pt), kernel_virt(load_pml4()), PAGE_SIZE);
+	memcpy(page_addr(pt), va(load_pml4()), PAGE_SIZE);
 	mm->pt = pt;
 	thread->mm = mm;
 

@@ -136,7 +136,7 @@ void *kmem_cache_alloc(struct kmem_cache *cache)
 
 static struct kmem_slab *kmem_get_slab(void *ptr)
 {
-	const pfn_t pfn = KERNEL_PHYS(ptr) >> PAGE_BITS;
+	const pfn_t pfn = PA(ptr) >> PAGE_BITS;
 
 	return pfn2page(pfn)->u.slab;
 }
@@ -217,7 +217,7 @@ static struct kmem_slab *kmem_small_slab_create(struct kmem_cache *cache,
 	const size_t size = PAGE_SIZE * pages;
 	const size_t off = size - sizeof(struct kmem_small_slab);
 
-	char *vaddr = kernel_virt(page2pfn(page) << PAGE_BITS);
+	char *vaddr = VA(page2pfn(page) << PAGE_BITS);
 	struct kmem_small_slab *slab = (struct kmem_small_slab *)(vaddr + off);
 
 	slab->common.ops = &small_slab_ops;
@@ -358,7 +358,7 @@ static struct kmem_slab *kmem_large_slab_create(struct kmem_cache *c,
 
 	const pfn_t pfs = (pfn_t)1 << c->order;
 	const size_t count = (pfs << PAGE_BITS) / c->object_size;
-	char *ptr = kernel_virt(page2pfn(page) << PAGE_BITS);
+	char *ptr = VA(page2pfn(page) << PAGE_BITS);
 
 	slab->common.ops = &large_slab_ops;
 	slab->common.total = count;

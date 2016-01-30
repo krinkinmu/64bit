@@ -2,7 +2,7 @@
 #include "memory.h"
 #include "vga.h"
 
-static char *const VGAMEM = KERNEL_VIRT(0xb8000);
+static char *const VGAMEM = VA(0xb8000);
 static const int ROWS = 25;
 static const int COLS = 80;
 static const char CATTR = 7;

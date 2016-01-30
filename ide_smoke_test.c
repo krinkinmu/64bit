@@ -19,7 +19,7 @@ static int write_page(const void *data, unsigned long sector)
 	}
 
 	const pfn_t pfn = page2pfn(page);
-	void *buf = kernel_virt(pfn << PAGE_BITS);
+	void *buf = va(pfn << PAGE_BITS);
 
 	memcpy(buf, data, PAGE_SIZE);
 	bio->dir = BIO_WRITE;
@@ -64,7 +64,7 @@ static int read_page(void *data, unsigned long sector)
 
 	if (bio->status == BIO_FINISHED) {
 		const pfn_t pfn = page2pfn(page);
-		void *buf = kernel_virt(pfn << PAGE_BITS);
+		void *buf = va(pfn << PAGE_BITS);
 
 		memcpy(data, buf, PAGE_SIZE);
 	}
