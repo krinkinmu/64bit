@@ -6,7 +6,7 @@
 
 static int write_page(const void *data, unsigned long sector)
 {
-	struct page *page = alloc_pages(0, NT_LOW);
+	struct page *page = alloc_pages(0);
 
 	if (!page)
 		return -ENOMEM;
@@ -41,7 +41,7 @@ static int write_page(const void *data, unsigned long sector)
 
 static int read_page(void *data, unsigned long sector)
 {
-	struct page *page = alloc_pages(0, NT_LOW);
+	struct page *page = alloc_pages(0);
 
 	if (!page)
 		return -ENOMEM;

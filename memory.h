@@ -130,7 +130,8 @@ struct page *pfn2page(pfn_t pfn);
 pfn_t page2pfn(const struct page * const page);
 struct page *alloc_pages_node(int order, struct memory_node *node);
 void free_pages_node(struct page *pages, int order, struct memory_node *node);
-struct page *alloc_pages(int order, int type);
+struct page *__alloc_pages(int order, int type);
+struct page *alloc_pages(int order);
 void free_pages(struct page *pages, int order);
 
 static inline struct memory_node *page_node(const struct page * const page)

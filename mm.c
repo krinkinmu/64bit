@@ -14,7 +14,7 @@ static struct page *zero_page;
 
 static struct page *alloc_page_table(void)
 {
-	return alloc_pages(0, NT_LOW);
+	return alloc_pages(0);
 }
 
 static void free_page_table(struct page *pt)
@@ -62,7 +62,7 @@ static struct page *copy_page(struct page *page)
 	if (page->u.refcount == 1)
 		return get_page(page);
 
-	struct page *new = alloc_pages(0, NT_HIGH);
+	struct page *new = alloc_pages(0);
 
 	if (!new)
 		return 0;
@@ -114,7 +114,7 @@ static int anon_page_fault(struct vma *vma, virt_t vaddr, int access)
 		return rc;
 	}
 
-	struct page *page = alloc_pages(0, NT_HIGH);
+	struct page *page = alloc_pages(0);
 
 	if (!page)
 		return -ENOMEM;
@@ -334,7 +334,7 @@ void setup_mm(void)
 {
 	DBG_ASSERT((mm_cachep = KMEM_CACHE(struct mm)) != 0);
 	DBG_ASSERT((vma_cachep = KMEM_CACHE(struct vma)) != 0);
-	DBG_ASSERT((zero_page = alloc_pages(0, NT_LOW)) != 0);
+	DBG_ASSERT((zero_page = alloc_pages(0)) != 0);
 	memset(page_addr(zero_page), 0, PAGE_SIZE);
 	zero_page->u.refcount = 1;
 }

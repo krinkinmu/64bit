@@ -349,7 +349,7 @@ void free_pages_node(struct page *pages, int order, struct memory_node *node)
 	spin_unlock_irqrestore(&node->lock, enabled);	
 }
 
-struct page *alloc_pages(int order, int type)
+struct page *__alloc_pages(int order, int type)
 {
 	const struct list_head *head = &node_order;
 	struct list_head *ptr = node_type[type];
@@ -364,6 +364,11 @@ struct page *alloc_pages(int order, int type)
 	}
 
 	return 0;
+}
+
+struct page *alloc_pages(int order)
+{
+	return __alloc_pages(order, NT_HIGH);
 }
 
 void free_pages(struct page *pages, int order)

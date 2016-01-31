@@ -295,7 +295,7 @@ static int ramfs_write(struct fs_file *file, const char *data, size_t size)
 
 	for (size_t i = 0; i <= idx; ++i) {
 		if (ptr->next == head) {
-			struct page *page = alloc_pages(0, NT_HIGH);
+			struct page *page = alloc_pages(0);
 
 			if (!page) {
 				spin_unlock_irqrestore(&fs_node->lock, enabled);

@@ -11,7 +11,7 @@
 
 static struct page *alloc_page(void)
 {
-	struct page *pt = alloc_pages(0, NT_LOW);
+	struct page *pt = __alloc_pages(0, NT_LOW);
 
 	if (pt) {
 		pt->u.refcount = 0;

@@ -134,7 +134,7 @@ struct thread *create_thread(void (*fptr)(void *), void *arg)
 	const size_t stack_pages = 1ul << KERNEL_STACK_ORDER;
 	const size_t stack_size = PAGE_SIZE * stack_pages;
 
-	struct page *stack = alloc_pages(stack_order, NT_LOW);
+	struct page *stack = alloc_pages(stack_order);
 
 	if (!stack)
 		return 0;
