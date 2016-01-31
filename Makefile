@@ -10,7 +10,7 @@ SRC := main.c list.c console.c vga.c string.c stdio.c ctype.c stdlib.c \
 	vsinkprintf.c balloc.c memory.c interrupt.c paging.c i8259a.c \
 	kmem_cache.c threads.c time.c scheduler.c vfs.c rbtree.c ramfs.c \
 	error.c ramfs_smoke_test.c locking.c ide.c ide_smoke_test.c misc.c \
-	initramfs.c serial.c mm.c
+	initramfs.c serial.c mm.c exec.c
 OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 

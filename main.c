@@ -9,6 +9,7 @@
 #include "ramfs.h"
 #include "time.h"
 #include "misc.h"
+#include "exec.h"
 #include "ide.h"
 #include "vga.h"
 #include "vfs.h"
@@ -57,6 +58,18 @@ static void test_page_fault(void)
 	DBG_ERR("no page fault");
 }
 
+static void test_exec(void)
+{
+	static const char test[] = "/initramfs/test";
+
+	const int rc = exec(test);
+
+	if (rc)
+		DBG_ERR("exec failed with error %s", errstr(rc));
+	else
+		DBG_INFO("exec finished successfully");
+}
+
 static void start(void *dummy)
 {
 	(void) dummy;
@@ -65,6 +78,7 @@ static void start(void *dummy)
 	setup_initramfs();
 	setup_ide(); // we aren't going to use it in near future
 	test_threading();
+	test_exec();
 	test_page_fault();
 
 	while (1);
