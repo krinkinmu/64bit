@@ -119,6 +119,8 @@ static int anon_page_fault(struct vma *vma, virt_t vaddr, int access)
 	if (!page)
 		return -ENOMEM;
 
+	memset(page_addr(page), 0, PAGE_SIZE);
+	
 	const int rc = map_range(page_addr(vma->mm->pt),
 				vaddr, page_paddr(get_page(page)), 1,
 				get_page_flags(vma->perm));
