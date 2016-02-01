@@ -61,6 +61,7 @@ trap_handler:
 	SAVE_VOLATILE
 
 	cld
+	movq %rsp, %rdi
 	call trap
 
 	RESTORE_VOLATILE
