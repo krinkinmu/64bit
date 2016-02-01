@@ -43,6 +43,8 @@
 
 #define KERNEL_CS         0x18
 #define KERNEL_DS         0x20
+#define USER_CS           0x2b
+#define USER_DS           0x33
 
 
 typedef uintptr_t pfn_t;
