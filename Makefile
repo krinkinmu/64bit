@@ -23,9 +23,6 @@ all: kernel
 kernel: $(AOBJ) $(OBJ) kernel.ld
 	$(LD) $(LFLAGS) -T kernel.ld -o $@ $(AOBJ) $(OBJ)
 
-entry.S: genint.py
-	python $^ > $@
-
 %.o: %.S
 	$(CC) -D__ASM_FILE__ -g -MMD -c $< -o $@
 
@@ -37,4 +34,4 @@ entry.S: genint.py
 
 .PHONY: clean
 clean:
-	rm -f kernel $(AOBJ) $(OBJ) $(DEP) $(ADEP) entry.S
+	rm -f kernel $(AOBJ) $(OBJ) $(DEP) $(ADEP)

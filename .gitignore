@@ -1,6 +1,5 @@
 *.o
 *.d
-entry.S
 kernel
 mkfs
 hdd.img
