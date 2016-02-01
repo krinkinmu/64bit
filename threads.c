@@ -167,6 +167,19 @@ struct thread *create_thread(int (*fptr)(void *), void *arg)
 	return thread;
 }
 
+/*
+ * every thread in kernel except dying one has thread_regs at the top of
+ * the stack - this is contract!!!
+ */
+struct thread_regs *thread_regs(struct thread *thread)
+{
+	const size_t stack_size = 1ul << (KERNEL_STACK_ORDER + PAGE_BITS);
+
+	char *stack_top = (char *)page_addr(thread->stack) + stack_size;
+
+	return (void *)(stack_top - sizeof(struct thread_regs));
+}
+
 void destroy_thread(struct thread *thread)
 {
 	wait_thread(thread);
