@@ -5,31 +5,6 @@
 
 #define RFLAGS_IF (1ul << 9)
 
-struct thread_regs {
-	unsigned long r15;
-	unsigned long r14;
-	unsigned long r13;
-	unsigned long r12;
-	unsigned long rbp;
-	unsigned long rbx;
-	unsigned long r11;
-	unsigned long r10;
-	unsigned long r9;
-	unsigned long r8;
-	unsigned long rax;
-	unsigned long rcx;
-	unsigned long rdx;
-	unsigned long rsi;
-	unsigned long rdi;
-	unsigned long intno;
-	unsigned long error;
-	unsigned long rip;
-	unsigned long cs;
-	unsigned long rflags;
-	unsigned long rsp;
-	unsigned long ss;
-} __attribute__((packed));
-
 typedef void (*irq_t)(int irq);
 
 inline static void local_irq_disable(void)

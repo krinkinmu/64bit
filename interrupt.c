@@ -1,3 +1,4 @@
+#include "thread_regs.h"
 #include "interrupt.h"
 #include "threads.h"
 #include "irqchip.h"

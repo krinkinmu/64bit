@@ -233,7 +233,7 @@ static void handle_bio(struct bio *bio)
 	finish_bio(bio, rc == 0 ? BIO_FINISHED : BIO_FAILED);
 }
 
-static void process_bio_queue(void *data)
+static int process_bio_queue(void *data)
 {
 	(void) data;
 
@@ -245,6 +245,7 @@ static void process_bio_queue(void *data)
 
 		handle_bio(bio);
 	}
+	return 0;
 }
 
 struct bio *bio_alloc(void)

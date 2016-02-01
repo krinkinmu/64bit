@@ -67,6 +67,19 @@ trap_handler:
 	addq $136, %rsp
 	iretq
 
+	.global __kernel_thread_entry
+	.extern kernel_thread_entry
+__kernel_thread_entry:
+	RESTORE_VOLATILE // preserved across function call
+	RESTORE_NONVOLATILE // initializes function call arguments
+
+	cld
+	call kernel_thread_entry
+
+	RESTORE_NONVOLATILE
+	addq $136, %rsp
+	iretq // jump to user space or exit
+
 
 #define ENTRY_NAME(nr) entry ## nr
 

@@ -1,3 +1,4 @@
+#include "thread_regs.h"
 #include "threads.h"
 #include "memory.h"
 #include "kernel.h"
@@ -8,6 +9,7 @@
 #include "mm.h"
 
 #include <stdint.h>
+
 
 #ifndef CONFIG_KERNEL_STACK
 #define KERNEL_STACK_ORDER 1
@@ -24,9 +26,11 @@ struct switch_stack_frame {
 	uint64_t rbx;
 	uint64_t rbp;
 	uint64_t entry;
-	uint64_t thread;
-	uint64_t fptr;
-	uint64_t data;
+} __attribute__((packed));
+
+struct thread_start_frame {
+	struct switch_stack_frame frame;
+	struct thread_regs regs;
 } __attribute__((packed));
 
 
@@ -86,20 +90,21 @@ static void place_thread(struct thread *thread)
 	thread->time = jiffies();
 }
 
-void thread_entry(struct thread *thread, void (*fptr)(void *), void *data)
+int kernel_thread_entry(struct thread *thread, int (*fptr)(void *),
+			void *data)
 {
 	place_thread(thread);
 	local_preempt_enable();
-	fptr(data);
-	finish_thread();
+	return fptr(data);
 }
 
-static struct thread *__create_thread(void (*fptr)(void *), void *data,
+static struct thread *__create_thread(int (*fptr)(void *), void *data,
 			void *stack, size_t size)
 {
-	const size_t sz = sizeof(struct switch_stack_frame);
+	const size_t frame_size = sizeof(struct thread_start_frame);
+	extern void __kernel_thread_entry(void);
 
-	if (size < sz)
+	if (size < frame_size)
 		return 0;
 
 	struct thread *thread = scheduler->alloc();
@@ -112,15 +117,28 @@ static struct thread *__create_thread(void (*fptr)(void *), void *data,
 		return 0;
 	}
 
-	void start_thread(void);
-
-	struct switch_stack_frame *frame = (void *)((char *)stack + size - sz);
+	struct thread_start_frame *frame =
+				(void *)((char *)stack + size - frame_size);
 
 	memset(frame, 0, sizeof(*frame));
-	frame->entry = (unsigned long)start_thread;
-	frame->thread = (unsigned long)thread;
-	frame->fptr = (unsigned long)fptr;
-	frame->data = (unsigned long)data;
+
+	/* all kernel threads start in kernel_thread_entry */
+	frame->frame.entry = (uint64_t)&__kernel_thread_entry;
+
+	/* kernel_thread_entry arguments */
+	frame->regs.rdi = (uint64_t)thread;
+	frame->regs.rsi = (uint64_t)fptr;
+	frame->regs.rdx = (uint64_t)data;
+
+	/*
+	 * after kernel_thread_entry finished we stil have thread_regs on
+	 * the stack, initialize it to iret to finish_thread. Thread function
+	 * can overwrite it to jump in userspace.
+	 */
+	frame->regs.ss = (uint64_t)KERNEL_DS;
+	frame->regs.cs = (uint64_t)KERNEL_CS;
+	frame->regs.rsp = (uint64_t)((char *)stack + size);
+	frame->regs.rip = (uint64_t)&finish_thread; // finish thread on exit
 
 	thread->stack_pointer = frame;
 	thread->state = THREAD_NEW;
@@ -128,7 +146,7 @@ static struct thread *__create_thread(void (*fptr)(void *), void *data,
 	return thread;
 }
 
-struct thread *create_thread(void (*fptr)(void *), void *arg)
+struct thread *create_thread(int (*fptr)(void *), void *arg)
 {
 	const size_t stack_order = KERNEL_STACK_ORDER;
 	const size_t stack_pages = 1ul << KERNEL_STACK_ORDER;

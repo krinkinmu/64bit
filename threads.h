@@ -67,7 +67,7 @@ struct scheduler {
 	void (*place)(struct thread *);
 };
 
-struct thread *create_thread(void (*fptr)(void *), void *data);
+struct thread *create_thread(int (*fptr)(void *), void *data);
 void destroy_thread(struct thread *thread);
 void activate_thread(struct thread *thread);
 void block_thread(void);

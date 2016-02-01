@@ -1,15 +1,6 @@
 	.code64
 	.text
-	.global switch_threads, start_thread
-	.extern thread_entry
-
-start_thread:
-	popq %rdi
-	popq %rsi
-	popq %rdx
-	jmp thread_entry
-1:	jmp 1b
-
+	.global switch_threads
 switch_threads:
 	pushq %rbp
 	pushq %rbx

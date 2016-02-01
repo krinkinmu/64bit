@@ -15,9 +15,10 @@
 #include "vfs.h"
 #include "mm.h"
 
-static void test_function(void *dummy)
+static int test_function(void *dummy)
 {
-	(void) dummy;
+	(void)dummy;
+	return 0;
 }
 
 static void test_threading(void)
@@ -70,7 +71,7 @@ static void test_exec(void)
 		DBG_INFO("exec finished successfully");
 }
 
-static void start(void *dummy)
+static int start(void *dummy)
 {
 	(void) dummy;
 
@@ -82,6 +83,7 @@ static void start(void *dummy)
 	test_page_fault();
 
 	while (1);
+	return 0;
 }
 
 void main(void)
