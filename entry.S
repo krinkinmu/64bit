@@ -54,6 +54,19 @@ common_handler:
 	addq $136, %rsp
 	iretq
 
+	.extern trap
+	.global trap_handler
+trap_handler:
+	subq $136, %rsp
+	SAVE_VOLATILE
+
+	cld
+	call trap
+
+	RESTORE_VOLATILE
+	addq $136, %rsp
+	iretq
+
 
 #define ENTRY_NAME(nr) entry ## nr
 

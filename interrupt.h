@@ -5,7 +5,7 @@
 
 #define RFLAGS_IF (1ul << 9)
 
-struct interrupt_frame {
+struct thread_regs {
 	unsigned long r15;
 	unsigned long r14;
 	unsigned long r13;
