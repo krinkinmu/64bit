@@ -34,31 +34,6 @@ static void test_threading(void)
 	DBG_INFO("finish threading test");
 }
 
-static void test_page_fault(void)
-{
-	DBG_INFO("Create readonly mapping");
-	const int rc = mmap(PAGE_SIZE, 2 * PAGE_SIZE, 0);
-
-	if (rc)
-		DBG_ERR("[%d-%d] read map failed with error %s",
-					PAGE_SIZE, 2 * PAGE_SIZE, errstr(rc));
-
-	DBG_INFO("Check zero page access");
-	const char *cptr = (const char *)PAGE_SIZE;
-
-	for (int i = 0; i != PAGE_SIZE; ++i) {
-		if (cptr[i] != 0)
-			DBG_ERR("Offset %d value %d", i, (int)cptr[i]);
-	}
-
-	DBG_INFO("Unmap readonly mapping");
-	munmap(PAGE_SIZE, 2 * PAGE_SIZE);
-
-	DBG_INFO("generate page fault");
-	(void)(*((volatile const char *)cptr));
-	DBG_ERR("no page fault");
-}
-
 static void test_exec(void)
 {
 	static const char test[] = "/initramfs/test";
@@ -80,9 +55,8 @@ static int start(void *dummy)
 	setup_ide(); // we aren't going to use it in near future
 	test_threading();
 	test_exec();
-	test_page_fault();
 
-	while (1);
+	DBG_INFO("Jump to userspace!!!");
 	return 0;
 }
 

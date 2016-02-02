@@ -1,8 +1,13 @@
+#include "thread_regs.h"
+#include "threads.h"
+#include "paging.h"
+#include "memory.h"
 #include "string.h"
 #include "stdio.h"
 #include "error.h"
 #include "exec.h"
 #include "vfs.h"
+#include "mm.h"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -59,8 +64,12 @@ static int read_buf(struct fs_file *file, void *data, size_t size)
 	while (rd < size) {
 		const int rc = vfs_read(file, buf + rd, size - rd);
 
-		if (rc <= 0)
+		if (rc < 0)
+			return rc;
+
+		if (rc == 0)
 			return -EIO;
+
 		rd += rc;
 	}
 
@@ -69,8 +78,10 @@ static int read_buf(struct fs_file *file, void *data, size_t size)
 
 static int read_elf_hdr(struct fs_file *file, struct elf_hdr *hdr)
 {
-	if (vfs_seek(file, 0, FSS_SET) < 0)
-		return -EIO;
+	const int rc = vfs_seek(file, 0, FSS_SET);
+
+	if (rc < 0)
+		return rc;
 
 	return read_buf(file, hdr, sizeof(*hdr));
 }
@@ -80,89 +91,128 @@ static int read_elf_phdr(struct fs_file *file, struct elf_phdr *phdr)
 	return read_buf(file, phdr, sizeof(*phdr));
 }
 
-static void dump_elf_phdr(const struct elf_phdr *phdr)
+static int check_elf_hdr(const struct elf_hdr *hdr)
 {
-	DBG_INFO("type: %x, file offset: %#llx, file size: %#llx",
-		phdr->p_type, phdr->p_offset, phdr->p_filesz);
-	DBG_INFO("load address: %p, memory size: %#llx",
-		phdr->p_vaddr, phdr->p_memsz);
-}
+	if (memcmp(hdr->e_ident, "\x7f""ELF", 4)) // heh...
+		return -ENOEXEC;
 
-static int dump_elf_phdrs(struct fs_file *file, const struct elf_hdr *hdr)
-{
-	size_t offset = hdr->e_phoff;
+	if (hdr->e_ident[ELF_CLASS] != ELF_CLASS64)
+		return -ENOEXEC;
 
-	for (int i = 0; i != (int)hdr->e_phnum; ++i) {
-		if (vfs_seek(file, offset, FSS_SET) < 0)
-			return -EIO;
+	if (hdr->e_ident[ELF_DATA] != ELF_DATA2LSB)
+		return -ENOEXEC;
 
-		struct elf_phdr phdr;
+	if (hdr->e_type != ELF_EXEC)
+		return -ENOEXEC;
 
-		if (read_elf_phdr(file, &phdr))
-			return -EIO;
-
-		dump_elf_phdr(&phdr);
-		offset += hdr->e_phentsize;
-	}
 	return 0;
 }
 
-static int dump_elf_file(struct fs_file *file)
+static int map_elf_phdr(const struct elf_phdr *phdr, struct fs_file *file)
 {
-	struct elf_hdr hdr;
+	if (phdr->p_type != PT_LOAD)
+		return 0;
 
-	if (read_elf_hdr(file, &hdr))
-		return -EIO;
+	const virt_t begin = phdr->p_vaddr;
+	const virt_t end = begin + phdr->p_memsz;
+	const int perm = ((phdr->p_flags & PF_W) != 0) ? VMA_PERM_WRITE : 0;
 
-	if (memcmp(hdr.e_ident, "\x7f""ELF", 4)) { // heh...
-		DBG_ERR("Not an elf file");
-		return -EINVAL;
+	int rc = mmap(begin, end, perm);
+
+	if (rc)
+		return rc;
+
+	if (!phdr->p_filesz)
+		return 0;
+
+	rc = vfs_seek(file, (int)phdr->p_offset, FSS_SET);
+	if (rc < 0)
+		return rc;
+
+	return read_buf(file, (void *)begin, (size_t)phdr->p_filesz);
+}
+
+static int setup_task_mm(const struct elf_hdr *hdr, struct fs_file *file)
+{
+	struct thread *thread = current();
+	struct mm *mm = create_mm();
+
+	if (!mm)
+		return -ENOMEM;
+
+	/* set new mm to employ page faults */
+	thread->mm = mm;
+	store_pml4(page_paddr(mm->pt));
+
+	int offset = hdr->e_phoff;
+
+	for (int i = 0; i != (int)hdr->e_phnum; ++i) {
+		int rc = vfs_seek(file, offset, FSS_SET);
+
+		if (rc < 0) {
+			release_mm(mm);
+			return rc;
+		}
+
+		struct elf_phdr phdr;
+
+		rc = read_elf_phdr(file, &phdr);
+		if (rc < 0) {
+			release_mm(mm);
+			return rc;
+		}
+
+		rc = map_elf_phdr(&phdr, file);
+		if (rc < 0) {
+			release_mm(mm);
+			return rc;
+		}
+		offset += hdr->e_phentsize;
 	}
 
-	if (hdr.e_ident[ELF_CLASS] != ELF_CLASS64) {
-		DBG_ERR("Not a 64bit elf");
-		return -EINVAL;
-	}
-
-	if (hdr.e_ident[ELF_DATA] != ELF_DATA2LSB) {
-		DBG_ERR("Not a little-endian binary");
-		return -EINVAL;
-	}
-
-	if (hdr.e_type != ELF_EXEC) {
-		DBG_ERR("Not an executable file");
-		return -EINVAL;
-	}
-
-	DBG_INFO("ident: %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x",
-		hdr.e_ident[0],  hdr.e_ident[1],  hdr.e_ident[2],
-		hdr.e_ident[3],  hdr.e_ident[4],  hdr.e_ident[5],
-		hdr.e_ident[6],  hdr.e_ident[7],  hdr.e_ident[8],
-		hdr.e_ident[9],  hdr.e_ident[10], hdr.e_ident[11],
-		hdr.e_ident[12], hdr.e_ident[13], hdr.e_ident[14],
-		hdr.e_ident[15]);
-
-	DBG_INFO("type: %x", hdr.e_type);	
-	DBG_INFO("machine: %x", hdr.e_machine);	
-	DBG_INFO("version: %x", hdr.e_version);	
-	DBG_INFO("entry: %p", hdr.e_entry);	
-	DBG_INFO("program header offset: %llx", hdr.e_phoff);	
-	DBG_INFO("flags: %x", hdr.e_flags);
-	DBG_INFO("program header entry size: %x", hdr.e_phentsize);	
-	DBG_INFO("program header entry count: %x", hdr.e_phnum);
-
-	return dump_elf_phdrs(file, &hdr);
+	return 0;
 }
 
 int exec(const char *name)
 {
+	struct thread *thread = current();
 	struct fs_file file;
 
-	if (vfs_open(name, &file))
+	int rc = vfs_open(name, &file);
+
+	if (rc)
 		return -EIO;
 
-	const int rc = dump_elf_file(&file);
+	struct elf_hdr hdr;
 
+	rc = read_elf_hdr(&file, &hdr);
+	if (rc)
+		goto out;
+
+	rc = check_elf_hdr(&hdr);
+	if (rc)
+		goto out;
+
+	struct mm *old_mm = thread->mm;
+
+	rc = setup_task_mm(&hdr, &file);
+	if (rc) {
+		thread->mm = old_mm;
+		store_pml4(page_paddr(old_mm->pt));
+		goto out;
+	}
+
+	release_mm(old_mm);
+
+	struct thread_regs *regs = thread_regs(thread);
+
+	memset(regs, 0, sizeof(*regs));
+	regs->rip = hdr.e_entry;
+	regs->cs = USER_CS;
+	regs->ss = USER_DS;
+	regs->rflags = RFLAGS_IF;
+
+out:
 	vfs_release(&file);
 
 	return rc;
