@@ -10,6 +10,7 @@ static const char *err_str[] = {
 	"File or directory already exists",
 	"Invalid value",
 	"IO error",
+	"Exec format error",
 	"Unknown error"
 };
 

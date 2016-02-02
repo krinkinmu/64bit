@@ -8,6 +8,7 @@
 #define EEXIST  5
 #define EINVAL  6
 #define EIO     7
+#define ENOEXEC 8
 
 const char *errstr(int errc);
 
