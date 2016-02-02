@@ -140,7 +140,8 @@ static struct thread *__create_thread(int (*fptr)(void *), void *data,
 	if (!thread)
 		return 0;
 
-	if (setup_thread_memory(thread)) {
+	thread->mm = create_mm();
+	if (!thread->mm) {
 		scheduler->free(thread);
 		return 0;
 	}
@@ -210,7 +211,7 @@ struct thread_regs *thread_regs(struct thread *thread)
 void destroy_thread(struct thread *thread)
 {
 	wait_thread(thread);
-	release_thread_memory(thread);
+	release_mm(thread->mm);
 	free_pages(thread->stack, KERNEL_STACK_ORDER);
 	scheduler->free(thread);
 }

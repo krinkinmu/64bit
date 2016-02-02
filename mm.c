@@ -196,9 +196,8 @@ static void insert_vma(struct mm *mm, struct vma *vma)
 	rb_insert(&vma->link, &mm->vma);	
 }
 
-static int __mmap(struct thread *thread, virt_t begin, virt_t end, int perm)
+int __mmap(struct mm *mm, virt_t begin, virt_t end, int perm)
 {
-	struct mm *mm = thread->mm;
 	struct vma_iter iter;
 
 	if (lookup_vma(mm, begin, end, &iter))
@@ -223,7 +222,7 @@ static int __mmap(struct thread *thread, virt_t begin, virt_t end, int perm)
 
 int mmap(virt_t begin, virt_t end, int perm)
 {
-	return __mmap(current(), begin, end, perm);
+	return __mmap(current()->mm, begin, end, perm);
 }
 
 static void unmap_vma_range(struct mm *mm, virt_t begin, virt_t end)
@@ -245,9 +244,8 @@ static void unmap_vma_range(struct mm *mm, virt_t begin, virt_t end)
 	}
 }
 
-static void __munmap(struct thread *thread, virt_t begin, virt_t end)
+void __munmap(struct mm *mm, virt_t begin, virt_t end)
 {
-	struct mm *mm = thread->mm;
 	struct vma_iter iter;
 
 	unmap_vma_range(mm, begin, end);
@@ -282,21 +280,21 @@ static void __munmap(struct thread *thread, virt_t begin, virt_t end)
 
 void munmap(virt_t begin, virt_t end)
 {
-	__munmap(current(), begin, end);
+	__munmap(current()->mm, begin, end);
 }
 
-int setup_thread_memory(struct thread *thread)
+struct mm *create_mm(void)
 {
 	struct mm *mm = alloc_mm();
 
 	if (!mm)
-		return -ENOMEM;
+		return 0;
 
 	struct page *pt = alloc_page_table();
 
 	if (!pt) {
 		free_mm(mm);
-		return -ENOMEM;
+		return 0;
 	}
 
 	/*
@@ -305,12 +303,11 @@ int setup_thread_memory(struct thread *thread)
 	 */
 	memcpy(page_addr(pt), va(load_pml4()), PAGE_SIZE);
 	mm->pt = pt;
-	thread->mm = mm;
 
-	return 0;
+	return mm;
 }
 
-static void unmap_all_vma(struct thread *thread, struct mm *mm)
+static void unmap_all_vma(struct mm *mm)
 {
 	struct rb_node *ptr = rb_leftmost(mm->vma.root);
 
@@ -318,16 +315,13 @@ static void unmap_all_vma(struct thread *thread, struct mm *mm)
 		struct vma *vma = TREE_ENTRY(ptr, struct vma, link);
 
 		ptr = rb_next(ptr);
-		__munmap(thread, vma->begin, vma->end);
+		__munmap(mm, vma->begin, vma->end);
 	}
 }
 
-void release_thread_memory(struct thread *thread)
+void release_mm(struct mm *mm)
 {
-	struct mm *mm = thread->mm;
-
-	unmap_all_vma(thread, mm);
-	thread->mm = 0;
+	unmap_all_vma(mm);
 	free_page_table(mm->pt);
 	free_mm(mm);
 }

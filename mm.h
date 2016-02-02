@@ -32,14 +32,16 @@ struct mm {
 };
 
 
-struct thread;
+struct mm *create_mm(void);
+void release_mm(struct mm *mm);
 
-int setup_thread_memory(struct thread *thread);
-void release_thread_memory(struct thread *thread);
+struct thread;
 
 int mm_page_fault(struct thread *thread, virt_t vaddr, int access);
 
 /* work with current thread mm */
+int __mmap(struct mm *mm, virt_t begin, virt_t end, int perm);
+void __munmap(struct mm *mm, virt_t begin, virt_t end);
 int mmap(virt_t begin, virt_t end, int perm);
 void munmap(virt_t begin, virt_t end);
 
