@@ -35,6 +35,8 @@ gdt:
         .quad 0x00a0920000000000
         .quad 0x00a0fa0000000000
         .quad 0x00a0f20000000000
+        .quad 0x0000000000000000 // reserve for TSS
+        .quad 0x0000000000000000
 gdt_ptr:
 	.word (gdt_ptr - gdt - 1)
 	.quad gdt
@@ -227,7 +229,7 @@ start64:
 	movw %ax, %gs
 	movw %ax, %ss
 
-	movabsq $stack_top, %rax
+	movabsq $init_stack_top, %rax
 	movq %rax, %rsp
 
 	cld
@@ -245,6 +247,7 @@ start64:
 	jmp 1b
 
 	.bss
+	.global init_stack_top
 	.align 0x1000
 	.space 0x2000
-stack_top:
+init_stack_top:

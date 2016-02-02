@@ -32,10 +32,24 @@ struct thread_start_frame {
 	struct thread_regs regs;
 } __attribute__((packed));
 
+#define IO_MAP_BITS  BIT_CONST(16)
+#define IO_MAP_WORDS (IO_MAP_BITS / sizeof(unsigned long))
+
+struct tss {
+	uint32_t rsrv0;
+	uint64_t rsp[3];
+	uint64_t rsrv1;
+	uint64_t ist[7];
+	uint64_t rsrv2;
+	uint16_t rsrv3;
+	uint16_t iomap_base;
+	unsigned long iomap[IO_MAP_WORDS + 1];
+} __attribute__((packed));
 
 static struct thread *current_thread;
 static struct thread bootstrap;
 static struct scheduler *scheduler;
+static struct tss tss __attribute__((aligned (PAGE_SIZE)));
 
 static void check_stack(struct thread *thread)
 {
@@ -53,7 +67,6 @@ static void check_stack(struct thread *thread)
 	}
 }
 
-
 void idle(void)
 { while (1) schedule(); }
 
@@ -66,6 +79,21 @@ static void preempt_thread(struct thread *thread)
 		scheduler->preempt(thread);
 }
 
+static size_t thread_stack_size(void)
+{
+	return 1ul << (KERNEL_STACK_ORDER + PAGE_BITS);
+}
+
+static void *thread_stack_begin(struct thread *thread)
+{
+	return page_addr(thread->stack);
+}
+
+static void *thread_stack_end(struct thread *thread)
+{
+	return (char *)thread_stack_begin(thread) + thread_stack_size();
+}
+
 static void place_thread(struct thread *thread)
 {
 	struct thread *prev = current_thread;
@@ -76,6 +104,7 @@ static void place_thread(struct thread *thread)
 	current_thread = thread;
 
 	store_pml4(page_paddr(current_thread->mm->pt));
+	tss.rsp[0] = (uint64_t)thread_stack_end(current_thread);
 
 	if (prev->state == THREAD_FINISHED)
 		prev->state = THREAD_DEAD;
@@ -173,11 +202,9 @@ struct thread *create_thread(int (*fptr)(void *), void *arg)
  */
 struct thread_regs *thread_regs(struct thread *thread)
 {
-	const size_t stack_size = 1ul << (KERNEL_STACK_ORDER + PAGE_BITS);
+	char *stack_end = thread_stack_end(thread);
 
-	char *stack_top = (char *)page_addr(thread->stack) + stack_size;
-
-	return (void *)(stack_top - sizeof(struct thread_regs));
+	return (void *)(stack_end - sizeof(struct thread_regs));
 }
 
 void destroy_thread(struct thread *thread)
@@ -261,6 +288,43 @@ bool need_resched(void)
 	return scheduler->need_preempt(current_thread);
 }
 
+struct tss_desc {
+	uint64_t low;
+	uint64_t high;
+} __attribute((packed));
+
+static void setup_tss_desc(struct tss_desc *desc, struct tss *tss)
+{
+	const uint64_t limit = sizeof(*tss) - 1;
+	const uint64_t base = (uint64_t)tss;
+
+	desc->low = (limit & BITS_CONST(15, 0))
+			| ((base & BITS_CONST(23, 0)) << 16)
+			| (((uint64_t)9 | BIT_CONST(7)) << 40)
+			| ((limit & BITS_CONST(19, 16)) << 32)
+			| ((base & BITS_CONST(31, 24)) << 32);
+	desc->high = base >> 32;
+}
+
+static void load_tr(unsigned short sel)
+{ __asm__ ("ltr %0" : : "a"(sel)); }
+
+static void setup_tss(void)
+{
+	extern char init_stack_top[];
+	const int tss_entry = 7;
+	const int tss_sel = tss_entry << 3;
+	struct tss_desc desc;
+	uint64_t *gdt = get_gdt_ptr();
+
+	tss.iomap_base = offsetof(struct tss, iomap);
+	tss.rsp[0] = (uint64_t)init_stack_top;
+	memset(tss.iomap, 0xff, sizeof(tss.iomap));
+	setup_tss_desc(&desc, &tss);
+	memcpy(gdt + tss_entry, &desc, sizeof(desc));
+	load_tr(tss_sel);
+}
+
 void setup_threading(void)
 {
 	extern struct scheduler round_robin;
@@ -270,6 +334,7 @@ void setup_threading(void)
 	scheduler = &round_robin;
 
 	setup_mm();
+	setup_tss();
 
 	static struct mm mm;
 

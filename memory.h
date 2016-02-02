@@ -145,6 +145,19 @@ static inline phys_t page_paddr(struct page *page)
 static inline void *page_addr(struct page *page)
 { return va(page_paddr(page)); }
 
+struct gdt_ptr {
+	uint16_t size;
+	uint64_t addr;
+} __attribute__((packed));
+
+static inline void *get_gdt_ptr(void)
+{
+	struct gdt_ptr ptr;
+
+	__asm__("sgdt %0" : "=m"(ptr));
+	return (void *)ptr.addr;
+}
+
 void setup_memory(void);
 void setup_buddy(void);
 
