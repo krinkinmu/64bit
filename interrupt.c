@@ -3,9 +3,12 @@
 #include "threads.h"
 #include "irqchip.h"
 #include "memory.h"
+#include "string.h"
 #include "stdio.h"
 #include "error.h"
 #include "mm.h"
+
+#include <stdint.h>
 
 #define IDT_PRESENT    (1ul << 47)
 #define IDT_64INT      (14ul << 40)
@@ -16,13 +19,13 @@
 #define IDT_SYSCALL    128
 
 struct idt_entry {
-	unsigned long low;
-	unsigned long high;
+	uint64_t low;
+	uint64_t high;
 } __attribute__((packed));
 
 struct idt_ptr {
-	unsigned short size;
-	unsigned long base;
+	uint16_t size;
+	uint64_t base;
 } __attribute__((packed));
 
 
@@ -40,7 +43,7 @@ static const struct irqchip *irqchip;
 static void __setup_idt_entry(struct idt_entry *entry, unsigned short cs,
 			unsigned long isr, unsigned long flags)
 {
-	entry->low = (isr & 0xFFFFul) | ((unsigned long)cs << 16)
+	entry->low = (isr & 0xFFFFul) | ((uint64_t)cs << 16)
 		| ((isr & 0xFFFF0000ul) << 32) | flags;
 	entry->high = (isr >> 32) & 0xFFFFFFFFul;
 }
@@ -51,6 +54,11 @@ static void setup_idt_entry(int no, unsigned short cs, unsigned long isr,
 	DBG_ASSERT(no < IDT_SIZE);
 
 	__setup_idt_entry(idt + no, cs, isr, flags | IDT_PRESENT);
+}
+
+static void clear_idt_entry(int no)
+{
+	memset(idt + no, 0, sizeof(idt[no]));
 }
 
 static void setup_irq(raw_isr_entry_t isr, int no)
@@ -217,13 +225,16 @@ void unregister_irq_handler(int irq, irq_t isr)
 	if (handler[irq] == isr) {
 		mask_irq(irq);
 		handler[irq] = (irq_t)0;
-		setup_trap(isr_entry[intno], intno);
+		clear_idt_entry(intno);
 	}
 }
 
 void setup_ints(void)
 {
-	for (int i = 0; i != IDT_EXCEPTIONS + IDT_IRQS; ++i)
+	for (int i = 0; i != IDT_IRQS; ++i)
+		irqmask_count[i] = 1;
+
+	for (int i = 0; i != IDT_EXCEPTIONS; ++i)
 		setup_irq(isr_entry[i], i);
 
 	setup_trap(trap_handler, IDT_SYSCALL);

@@ -17,12 +17,12 @@ inline static unsigned long local_save_flags(void)
 {
 	unsigned long flags;
 
-	__asm__ volatile("pushf ; pop %0" : "=rm"(flags) : : "memory");
+	__asm__ ("pushfq ; popq %0" : "=rm"(flags) : : "memory");
 	return flags;
 }
 
 inline static void local_restore_flags(unsigned long flags)
-{ __asm__ volatile("push %0 ; popf" : : "g"(flags) : "memory"); }
+{ __asm__ ("pushq %0 ; popfq" : : "g"(flags) : "memory"); }
 
 inline static bool local_irq_enabled(void)
 { return (local_save_flags() & RFLAGS_IF) != 0; }
