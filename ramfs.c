@@ -284,11 +284,11 @@ static int ramfs_write(struct fs_file *file, const char *data, size_t size)
 {
 	struct fs_node *fs_node = file->node;
 	struct ramfs_node *node = RAMFS_NODE(fs_node);
+
+	mutex_lock(&fs_node->mux);
+
 	struct list_head *head = &node->pages;
 	struct list_head *ptr = head;
-
-	const bool enabled = spin_lock_irqsave(&fs_node->lock);
-
 	const size_t idx = file->offset >> PAGE_BITS;
 	const size_t off = file->offset & PAGE_MASK;
 	const size_t sz = MINU(PAGE_SIZE - off, size);
@@ -298,7 +298,7 @@ static int ramfs_write(struct fs_file *file, const char *data, size_t size)
 			struct page *page = alloc_pages(0);
 
 			if (!page) {
-				spin_unlock_irqrestore(&fs_node->lock, enabled);
+				mutex_unlock(&fs_node->mux);
 				return -ENOMEM;
 			}
 
@@ -311,14 +311,14 @@ static int ramfs_write(struct fs_file *file, const char *data, size_t size)
 	char *vaddr = page_addr(page);
 
 	if (!vaddr) {
-		spin_unlock_irqrestore(&fs_node->lock, enabled);
+		mutex_unlock(&fs_node->mux);
 		return -ENOMEM;
 	}
 
 	memcpy(vaddr + off, data, sz);
 	file->offset += sz;
 	file->node->size = MAX(file->offset, file->node->size);
-	spin_unlock_irqrestore(&fs_node->lock, enabled);
+	mutex_unlock(&fs_node->mux);
 
 	return (int)sz;
 }
@@ -327,13 +327,14 @@ static int ramfs_read(struct fs_file *file, char *data, size_t size)
 {
 	struct fs_node *fs_node = file->node;
 	struct ramfs_node *node = RAMFS_NODE(fs_node);
+
+	mutex_lock(&fs_node->mux);
+
 	struct list_head *head = &node->pages;
 	struct list_head *ptr = head;
 
-	const bool enabled = spin_lock_irqsave(&fs_node->lock);
-
 	if (file->offset >= file->node->size) {
-		spin_unlock_irqrestore(&fs_node->lock, enabled);
+		mutex_unlock(&fs_node->mux);
 		return 0;
 	}
 
@@ -344,7 +345,7 @@ static int ramfs_read(struct fs_file *file, char *data, size_t size)
 
 	for (size_t i = 0; i <= idx; ++i) {
 		if (ptr->next == head) {
-			spin_unlock_irqrestore(&fs_node->lock, enabled);
+			mutex_unlock(&fs_node->mux);
 			return 0;
 		}
 		ptr = ptr->next;
@@ -354,13 +355,13 @@ static int ramfs_read(struct fs_file *file, char *data, size_t size)
 	char *vaddr = page_addr(page);
 
 	if (!vaddr) {
-		spin_unlock_irqrestore(&fs_node->lock, enabled);
+		mutex_unlock(&fs_node->mux);
 		return -ENOMEM;
 	}
 
 	memcpy(data, vaddr + off, sz);
 	file->offset += sz;
-	spin_unlock_irqrestore(&fs_node->lock, enabled);
+	mutex_unlock(&fs_node->mux);
 
 	return (int)sz;	
 }
