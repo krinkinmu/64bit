@@ -19,8 +19,8 @@ struct mm;
 
 struct vma {
 	struct rb_node link;
-	uintptr_t begin;
-	uintptr_t end;
+	virt_t begin;
+	virt_t end;
 	int perm;
 	struct mm *mm;
 	int (*fault)(struct vma *, virt_t, int);

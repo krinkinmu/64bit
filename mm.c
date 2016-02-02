@@ -95,7 +95,7 @@ static int anon_page_fault(struct vma *vma, virt_t vaddr, int access)
 	struct pages set;
 
 	if (gather_pages(page_addr(vma->mm->pt), vaddr, 1, &set) != 0) {
-		struct page *old = TREE_ENTRY(list_first(&set.head),
+		struct page *old = LIST_ENTRY(list_first(&set.head),
 					struct page, link);
 		struct page *new = copy_page(old);
 
@@ -199,6 +199,9 @@ static void insert_vma(struct mm *mm, struct vma *vma)
 int __mmap(struct mm *mm, virt_t begin, virt_t end, int perm)
 {
 	struct vma_iter iter;
+
+	begin = ALIGN_DOWN_CONST(begin, PAGE_SIZE);
+	end = ALIGN_CONST(end, PAGE_SIZE);
 
 	if (lookup_vma(mm, begin, end, &iter))
 		return -EBUSY;
