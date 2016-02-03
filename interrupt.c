@@ -10,13 +10,15 @@
 
 #include <stdint.h>
 
-#define IDT_PRESENT    (1ul << 47)
-#define IDT_64INT      (14ul << 40)
-#define IDT_64TRAP     (15ul << 40)
-#define IDT_SIZE       129
+#define IDT_PRESENT    ((uint64_t)1 << 47)
+#define IDT_64INT      ((uint64_t)14 << 40)
+#define IDT_64TRAP     ((uint64_t)15 << 40)
+#define IDT_USER       ((uint64_t)3 << 45)
+#define IDT_SYSCALL    0x80
+#define IDT_SIZE       (IDT_SYSCALL + 1)
 #define IDT_IRQS       16
 #define IDT_EXCEPTIONS 32
-#define IDT_SYSCALL    128
+
 
 struct idt_entry {
 	uint64_t low;
@@ -66,9 +68,10 @@ static void setup_irq(raw_isr_entry_t isr, int no)
 	setup_idt_entry(no, KERNEL_CS, (unsigned long)isr, IDT_64INT);
 }
 
-static void setup_trap(raw_isr_entry_t isr, int no)
+static void setup_syscall(raw_isr_entry_t isr, int no)
 {
-	setup_idt_entry(no, KERNEL_CS, (unsigned long)isr, IDT_64TRAP);
+	setup_idt_entry(no, KERNEL_CS, (unsigned long)isr,
+				IDT_64TRAP | IDT_USER);
 }
 
 static void set_idt(const struct idt_ptr *ptr)
@@ -189,22 +192,6 @@ void isr_common_handler(struct thread_regs *ctx)
 		schedule();
 }
 
-int trap(struct thread_regs *frame)
-{
-	printf("syscall %lx, register state:\n", frame->rdi);	
-	printf("\tstack %lx:%lx, rflags %#lx\n", frame->ss, frame->rsp,
-				frame->rflags);
-	printf("\trax %#lx, rbx %#lx, rcx %#lx, rdx %#lx\n", frame->rax,
-				frame->rbx, frame->rcx, frame->rdx);
-	printf("\trbp %#lx, rdi %#lx, rsi %#lx\n", frame->rbp, frame->rdi,
-				frame->rsi);
-	printf("\tr8 %#lx, r9 %#lx, r10 %#lx, r11 %#lx\n", frame->r8, frame->r9,
-				frame->r10, frame->r11);
-	printf("\tr12 %#lx, r13 %#lx, r14 %#lx, r15 %#lx\n", frame->r12,
-				frame->r13, frame->r14, frame->r15);
-	return 0;
-}
-
 void register_irq_handler(int irq, irq_t isr)
 {
 	DBG_ASSERT(irq < IDT_IRQS);
@@ -237,10 +224,12 @@ void setup_ints(void)
 	for (int i = 0; i != IDT_EXCEPTIONS; ++i)
 		setup_irq(isr_entry[i], i);
 
-	setup_trap(trap_handler, IDT_SYSCALL);
+	extern void syscall_handler(void);
+
+	setup_syscall(&syscall_handler, IDT_SYSCALL);
 
 	idt_ptr.size = sizeof(idt) - 1;
-	idt_ptr.base = (unsigned long)idt;
+	idt_ptr.base = (uintptr_t)idt;
 	set_idt(&idt_ptr);
 
 	irqchip = &i8259a;
