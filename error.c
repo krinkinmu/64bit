@@ -11,6 +11,7 @@ static const char *err_str[] = {
 	"Invalid value",
 	"IO error",
 	"Exec format error",
+	"No such system call",
 	"Unknown error"
 };
 
