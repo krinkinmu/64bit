@@ -1,29 +1,31 @@
 #ifndef __THREAD_REGS_H__
 #define __THREAD_REGS_H__
 
+#include <stdint.h>
+
 struct thread_regs {
-	unsigned long r15;
-	unsigned long r14;
-	unsigned long r13;
-	unsigned long r12;
-	unsigned long rbp;
-	unsigned long rbx;
-	unsigned long r11;
-	unsigned long r10;
-	unsigned long r9;
-	unsigned long r8;
-	unsigned long rax;
-	unsigned long rcx;
-	unsigned long rdx;
-	unsigned long rsi;
-	unsigned long rdi;
-	unsigned long intno;
-	unsigned long error;
-	unsigned long rip;
-	unsigned long cs;
-	unsigned long rflags;
-	unsigned long rsp;
-	unsigned long ss;
+	uint64_t r15;
+	uint64_t r14;
+	uint64_t r13;
+	uint64_t r12;
+	uint64_t rbp;
+	uint64_t rbx;
+	uint64_t r11;
+	uint64_t r10;
+	uint64_t r9;
+	uint64_t r8;
+	uint64_t rax;
+	uint64_t rcx;
+	uint64_t rdx;
+	uint64_t rsi;
+	uint64_t rdi;
+	uint64_t intno;
+	uint64_t error;
+	uint64_t rip;
+	uint64_t cs;
+	uint64_t rflags;
+	uint64_t rsp;
+	uint64_t ss;
 } __attribute__((packed));
 
 #endif /*__THREAD_REGS_H__*/
