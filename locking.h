@@ -1,7 +1,7 @@
 #ifndef __LOCKING_H__
 #define __LOCKING_H__
 
-#include "threads.h"
+#include "threads_defs.h"
 #include "stdio.h"
 #include "list.h"
 

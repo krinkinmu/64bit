@@ -4,6 +4,7 @@
 #include "kernel.h"
 #include "string.h"
 #include "paging.h"
+#include "error.h"
 #include "stdio.h"
 #include "time.h"
 #include "mm.h"
@@ -32,6 +33,12 @@ struct thread_start_frame {
 	struct thread_regs regs;
 } __attribute__((packed));
 
+struct thread_iter {
+	struct rb_node *parent;
+	struct rb_node **plink;
+	struct thread *thread;
+};
+
 #define IO_MAP_BITS  BIT_CONST(16)
 #define IO_MAP_WORDS (IO_MAP_BITS / sizeof(unsigned long))
 
@@ -48,6 +55,8 @@ struct tss {
 
 static struct thread *current_thread;
 static struct thread bootstrap;
+static DEFINE_SPINLOCK(threads_lock);
+static struct rb_tree threads;
 static struct scheduler *scheduler;
 static struct tss tss __attribute__((aligned (PAGE_SIZE)));
 
@@ -126,6 +135,47 @@ int kernel_thread_entry(struct thread *thread, int (*fptr)(void *),
 	return fptr(data);
 }
 
+static int __lookup_thread(struct thread_iter *iter, pid_t pid)
+{
+	struct rb_node **plink = &threads.root;
+	struct rb_node *parent = 0;
+
+	while (*plink) {
+		struct thread *t = TREE_ENTRY(*plink, struct thread, node);
+		const pid_t p = thread_pid(t);
+
+		if (p == pid) {
+			iter->parent = parent;
+			iter->plink = plink;
+			iter->thread = t;
+			return 1;
+		}
+
+		parent = *plink;
+		if (p < pid)
+			plink = &parent->right;
+		else
+			plink = &parent->left;
+	}
+
+	iter->parent = parent;
+	iter->plink = plink;
+	iter->thread = 0;
+	return 0;
+}
+
+struct thread *lookup_thread(pid_t pid)
+{
+	struct thread_iter iter;
+	const bool enabled = spin_lock_irqsave(&threads_lock);
+
+	if (__lookup_thread(&iter, pid))
+		get_thread(iter.thread);
+	spin_unlock_irqrestore(&threads_lock, enabled);
+
+	return iter.thread;
+}
+
 static struct thread *__create_thread(int (*fptr)(void *), void *data,
 			void *stack, size_t size)
 {
@@ -167,34 +217,66 @@ static struct thread *__create_thread(int (*fptr)(void *), void *data,
 	frame->regs.ss = (uint64_t)KERNEL_DS;
 	frame->regs.cs = (uint64_t)KERNEL_CS;
 	frame->regs.rsp = (uint64_t)((char *)stack + size);
-	frame->regs.rip = (uint64_t)&finish_thread; // finish thread on exit
+	frame->regs.rip = (uint64_t)&exit_thread; // finish thread on exit
 
+	spinlock_init(&thread->lock);
+	thread->refcount = 1; // one for wait
 	thread->stack_pointer = frame;
-	thread->state = THREAD_NEW;
+	thread->state = THREAD_BLOCKED;
+
+	struct thread_iter iter;
+	const bool enabled = spin_lock_irqsave(&threads_lock);
+
+	static pid_t next_pid = 0;
+	thread->pid = next_pid++;
+
+	while (__lookup_thread(&iter, thread_pid(thread)))
+		thread->pid = next_pid++;
+
+	rb_link(&thread->node, iter.parent, iter.plink);
+	rb_insert(&thread->node, &threads);
+	spin_unlock_irqrestore(&threads_lock, enabled);
 
 	return thread;
 }
 
-struct thread *create_thread(int (*fptr)(void *), void *arg)
+static pid_t create_thread(int (*fptr)(void *), void *arg)
 {
 	const size_t stack_order = KERNEL_STACK_ORDER;
-	const size_t stack_pages = 1ul << KERNEL_STACK_ORDER;
-	const size_t stack_size = PAGE_SIZE * stack_pages;
+	const size_t stack_pages = (size_t)1 << stack_order;
+	const size_t stack_size = stack_pages << PAGE_BITS;
 
 	struct page *stack = alloc_pages(stack_order);
 
 	if (!stack)
-		return 0;
+		return -ENOMEM;
 
 	struct thread *thread = __create_thread(fptr, arg,
 				page_addr(stack), stack_size);
 
-	if (!thread)
+	if (!thread) {
 		free_pages(stack, stack_order);
-	else
-		thread->stack = stack;
+		return -ENOMEM;
+	}
+	
+	thread->stack = stack;
+	return thread_pid(thread);
+}
 
-	return thread;
+pid_t create_kthread(int (*fptr)(void *), void *arg)
+{
+	const pid_t pid = create_thread(fptr, arg);
+
+	if (pid < 0)
+		return pid;
+
+	struct thread *thread = lookup_thread(pid);
+
+	DBG_ASSERT(thread != 0);
+
+	activate_thread(thread);
+	put_thread(thread);
+	return pid;
 }
 
 /*
@@ -208,27 +290,7 @@ struct thread_regs *thread_regs(struct thread *thread)
 	return (void *)(stack_end - sizeof(struct thread_regs));
 }
 
-void destroy_thread(struct thread *thread)
-{
-	wait_thread(thread);
-	release_mm(thread->mm);
-	free_pages(thread->stack, KERNEL_STACK_ORDER);
-	scheduler->free(thread);
-}
-
-void activate_thread(struct thread *thread)
-{
-	const bool enabled = local_preempt_save();
-
-	DBG_ASSERT(thread->state != THREAD_ACTIVE);
-	DBG_ASSERT(thread != &bootstrap);
-
-	thread->state = THREAD_ACTIVE;
-	scheduler->activate(thread);
-	local_preempt_restore(enabled);
-}
-
-void wait_thread(struct thread *thread)
+static void __wait_thread(struct thread *thread)
 {
 	while (thread->state != THREAD_DEAD) {
 		barrier();
@@ -236,7 +298,55 @@ void wait_thread(struct thread *thread)
 	}
 }
 
-void finish_thread(void)
+static int reap_thread(struct thread *thread)
+{
+	bool locked = spin_lock_irqsave(&thread->lock);
+	const int state = thread->state;
+
+	thread->state = THREAD_REAPED;
+	spin_unlock_irqrestore(&thread->lock, locked);
+
+	if (state == THREAD_REAPED)
+		return 0;
+
+	locked = spin_lock_irqsave(&threads_lock);
+	rb_erase(&thread->node, &threads);
+	spin_unlock_irqrestore(&threads_lock, locked);	
+	put_thread(thread);
+
+	return 1;
+}
+
+int wait_thread(pid_t pid)
+{
+	struct thread *thread = lookup_thread(pid);
+
+	if (!thread)
+		return -ENOENT;
+
+	__wait_thread(thread);
+
+	const int rc = reap_thread(thread) ? 0 : -ENOENT;
+
+	put_thread(thread);
+
+	return rc;
+}
+
+void activate_thread(struct thread *thread)
+{
+	const bool locked = spin_lock_irqsave(&thread->lock);
+
+	DBG_ASSERT(thread != &bootstrap);
+
+	if (thread->state == THREAD_BLOCKED) {
+		thread->state = THREAD_ACTIVE;
+		scheduler->activate(thread);
+	}
+	spin_unlock_irqrestore(&thread->lock, locked);
+}
+
+void exit_thread(void)
 {
 	local_preempt_disable();
 	current_thread->state = THREAD_FINISHED;
@@ -246,6 +356,32 @@ void finish_thread(void)
 
 struct thread *current(void)
 { return current_thread; }
+
+static void release_thread(struct thread *thread)
+{
+	release_mm(thread->mm);
+	free_pages(thread->stack, KERNEL_STACK_ORDER);
+	scheduler->free(thread);
+}
+
+void get_thread(struct thread *thread)
+{
+	const bool locked = spin_lock_irqsave(&thread->lock);
+
+	++thread->refcount;
+	spin_unlock_irqrestore(&thread->lock, locked);
+}
+
+void put_thread(struct thread *thread)
+{
+	const bool locked = spin_lock_irqsave(&thread->lock);
+	const int refcount = --thread->refcount;
+
+	spin_unlock_irqrestore(&thread->lock, locked);
+
+	if (!refcount)
+		release_thread(thread);
+}
 
 static void switch_to(struct thread *next)
 {

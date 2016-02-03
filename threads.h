@@ -4,57 +4,32 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "interrupt.h"
+#include "locking.h"
 #include "kernel.h"
+#include "rbtree.h"
 
-
-static inline void local_preempt_disable(void)
-{
-	local_irq_disable();
-	barrier();
-}
-
-static inline void local_preempt_enable(void)
-{
-	barrier();
-	local_irq_enable();
-}
-
-static inline bool local_preempt_enabled(void)
-{ return local_irq_enabled(); }
-
-static inline bool local_preempt_disabled(void)
-{ return local_irq_disabled(); }
-
-static inline bool local_preempt_save(void)
-{
-	const bool enabled = local_preempt_enabled();
-
-	local_preempt_disable();
-	return enabled;
-}
-
-static inline void local_preempt_restore(bool enabled)
-{
-	if (enabled)
-		local_preempt_enable();
-}
 
 enum thread_state {
 	THREAD_NONE,
-	THREAD_NEW,
 	THREAD_ACTIVE,
 	THREAD_BLOCKED,
 	THREAD_FINISHED,
-	THREAD_DEAD
+	THREAD_DEAD,
+	THREAD_REAPED
 };
 
+typedef intptr_t pid_t;
+
 struct thread {
+	struct rb_node node;
+	pid_t pid;
 	void *stack_pointer;
 	unsigned long long time;
 	enum thread_state state;
 	struct page *stack;
 	struct mm *mm;
+	struct spinlock lock;
+	int refcount;
 };
 
 struct scheduler {
@@ -67,20 +42,26 @@ struct scheduler {
 	void (*place)(struct thread *);
 };
 
+
+static inline pid_t thread_pid(const struct thread *thread)
+{ return thread->pid; }
+
+pid_t create_kthread(int (*fptr)(void *), void *arg);
+void activate_thread(struct thread *thread);
+int wait_thread(pid_t pid);
+void exit_thread(void);
+
+
 struct thread_regs;
 
 struct thread_regs *thread_regs(struct thread *thread);
-
-struct thread *create_thread(int (*fptr)(void *), void *data);
-void destroy_thread(struct thread *thread);
-void activate_thread(struct thread *thread);
-void block_thread(void);
-void finish_thread(void);
-void wait_thread(struct thread *thread);
-
+struct thread *lookup_thread(pid_t pid);
 struct thread *current(void);
+void put_thread(struct thread *thread);
+void get_thread(struct thread *thread);
 void schedule(void);
 bool need_resched(void);
+
 
 void idle(void);
 void setup_threading(void);

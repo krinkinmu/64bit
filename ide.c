@@ -287,11 +287,7 @@ void bio_wait(struct bio *bio)
 void setup_ide(void)
 {
 	DBG_ASSERT((ide_bio_cache = KMEM_CACHE(struct bio)) != 0);
-
-	struct thread *thread = create_thread(&process_bio_queue, 0);
-
-	DBG_ASSERT(thread != 0);
-	activate_thread(thread);
+	DBG_ASSERT(create_kthread(&process_bio_queue, 0) >= 0);
 
 #ifdef CONFIG_IDE_TEST
 	void ide_test(void);

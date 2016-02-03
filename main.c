@@ -25,11 +25,10 @@ static void test_threading(void)
 {
 	DBG_INFO("start threading test");
 	for (int i = 0; i != 10000; ++i) {
-		struct thread *thread = create_thread(&test_function, 0);
+		const pid_t pid = create_kthread(&test_function, 0);
 
-		activate_thread(thread);
-		wait_thread(thread);
-		destroy_thread(thread);
+		DBG_ASSERT(pid >= 0);
+		wait_thread(pid);
 	}
 	DBG_INFO("finish threading test");
 }
@@ -75,8 +74,7 @@ void main(void)
 	setup_vfs();
 
 	/* start first real kernel thread */
-	struct thread *start_thread = create_thread(&start, 0);
-	activate_thread(start_thread);
+	create_kthread(&start, 0);
 	local_preempt_enable();
 	idle();
 }
