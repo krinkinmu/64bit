@@ -1,3 +1,6 @@
+#include "syscall.h"
+#include "error.h"
+
 	.text
 	.code64
 
@@ -54,19 +57,29 @@ common_handler:
 	addq $136, %rsp
 	iretq
 
-	.extern trap
-	.global trap_handler
-trap_handler:
+	.extern syscall_table
+	.global syscall_handler
+syscall_handler:
 	subq $136, %rsp
 	SAVE_VOLATILE
 
-	cld
-	movq %rsp, %rdi
-	call trap
+	cmpq $MAX_SYSCALL_NR, %rax
+	jge no_syscall
+	movq syscall_table(, %rax, 8), %rax
+	testq %rax, %rax
+	je no_syscall
 
+	cld
+	call *%rax // return value in rax
+
+exit_syscall:
 	RESTORE_VOLATILE
 	addq $136, %rsp
 	iretq
+
+no_syscall:
+	movq $-ENOSYS, %rax
+	jmp exit_syscall
 
 	.global __kernel_thread_entry
 	.extern kernel_thread_entry
