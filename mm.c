@@ -14,7 +14,11 @@ static struct page *zero_page;
 
 static struct page *alloc_page_table(void)
 {
-	return alloc_pages(0);
+	struct page *page = alloc_pages(0);
+
+	if (page)
+		memset(page_addr(page), 0, PAGE_SIZE);
+	return page;
 }
 
 static void free_page_table(struct page *pt)
@@ -304,7 +308,10 @@ struct mm *create_mm(void)
 	 * kernel part is shared between the all threads, so we need to
 	 * copy at least kernel part of page table.
 	 */
-	memcpy(page_addr(pt), va(load_pml4()), PAGE_SIZE);
+	const size_t offset = pml4_index(HIGH_BASE) * sizeof(pte_t);
+
+	memcpy((char *)page_addr(pt) + offset,
+		(char *)va(load_pml4()) + offset, PAGE_SIZE - offset);
 	mm->pt = pt;
 
 	return mm;
