@@ -116,7 +116,7 @@ bool pt_iter_large(const struct pt_iter *iter)
 
 static struct page *alloc_page_table(void)
 {
-	struct page *page = alloc_pages(0);
+	struct page *page = __alloc_pages(0, NT_LOW);
 
 	if (page) {
 		memset(va(page_paddr(page)), 0, PAGE_SIZE);
