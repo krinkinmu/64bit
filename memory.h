@@ -20,7 +20,7 @@
 
 #define PADDR_BITS        48
 
-#define VIRTUAL_BASE      0xffffffff80000000ul
+#define KERNEL_BASE       0xffffffff80000000ul
 #define HIGH_BASE         0xffff800000000000ul
 #define PHYSICAL_BASE     0x0000000000000000ul
 #define MAX_PHYS_SIZE     BIT_CONST(36)       // max 0.5GB of page structs
@@ -49,9 +49,10 @@
 
 typedef uintptr_t pfn_t;
 typedef uintptr_t phys_t;
+typedef uintptr_t virt_t;
 
-#define KERNEL_PHYS(x)  ((phys_t)(x) - VIRTUAL_BASE)
-#define KERNEL_VIRT(x)  ((void *)((phys_t)(x) + VIRTUAL_BASE))
+#define KERNEL_PHYS(x)  ((phys_t)(x) - KERNEL_BASE)
+#define KERNEL_VIRT(x)  ((void *)((phys_t)(x) + KERNEL_BASE))
 #define PA(x)           ((phys_t)(x) - HIGH_BASE)
 #define VA(x)           ((void *)((phys_t)(x) + HIGH_BASE))
 
