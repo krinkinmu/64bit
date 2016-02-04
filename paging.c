@@ -4,7 +4,7 @@
 #include "stdio.h"
 
 
-#define PT_FLAGS          (PTE_PRESENT | PTE_WRITE | PTE_USER)
+#define PT_FLAGS (PTE_PRESENT | PTE_WRITE | PTE_USER)
 
 static int pt_index(virt_t vaddr, int level)
 {
@@ -394,7 +394,7 @@ static int kmap_order(pfn_t pages)
 
 static struct kmap_range *virt2kmap(virt_t vaddr)
 {
-	const pfn_t range = (vaddr - KERNEL_BASE - KERNEL_SIZE) >> PAGE_BITS;
+	const pfn_t range = (vaddr - KMAP_BASE) >> PAGE_BITS;
 
 	return &all_kmap_ranges[range];
 }
@@ -403,7 +403,7 @@ static virt_t kmap2virt(struct kmap_range *range)
 {
 	const pfn_t page = range - all_kmap_ranges;
 
-	return KERNEL_BASE + KERNEL_SIZE + (page << PAGE_BITS);
+	return KMAP_BASE + (page << PAGE_BITS);
 }
 
 static struct kmap_range *kmap_find_free_range(int order, pfn_t pages)
@@ -475,16 +475,22 @@ void *kmap(struct page **pages, size_t count)
 	if (!range)
 		return 0;
 
-	const virt_t vaddr = kmap2virt(range);
+	const virt_t from = kmap2virt(range);
+	const virt_t to = from + (count << PAGE_BITS);
 	pte_t *pt = va(load_pml4());
+	struct pt_iter iter;
+	size_t i = 0;
 
-	for (size_t i = 0; i != count; ++i) {
-		struct page *page = pages[i];
+	for_each_slot_in_range(pt, from, to, iter) {
+		const phys_t paddr = page_paddr(pages[i++]);
+		const int level = iter.level;
+		const int idx = iter.idx[level];
 
-		map_range(pt, vaddr, page_paddr(page), 1, PTE_WRITE);
+		iter.pt[level][idx] = paddr | PTE_WRITE;
+		flush_tlb_addr(iter.addr);
 	}
 
-	return (void *)vaddr;
+	return (void *)from;
 }
 
 void kunmap(void *vaddr)
@@ -492,8 +498,20 @@ void kunmap(void *vaddr)
 	struct kmap_range *range = virt2kmap((virt_t)vaddr);
 	const pfn_t count = range->pages;
 
+	const virt_t from = (virt_t)vaddr;
+	const virt_t to = from + (count << PAGE_BITS);
 	pte_t *pt = va(load_pml4());
-	unmap_range(pt, (virt_t)vaddr, count);
+	virt_t virt = from;
+	struct pt_iter iter;
+
+	for_each_slot_in_range(pt, from, to, iter) {
+		const int level = iter.level;
+		const int idx = iter.idx[level];
+
+		iter.pt[idx] = 0;
+		flush_tlb_addr(virt);
+		virt += PAGE_SIZE;
+	}
 	kmap_free_range(range, range->pages);
 }
 
@@ -504,8 +522,7 @@ static int setup_kmap_mapping(pte_t *pml4)
 
 	kmap_free_range(all_kmap_ranges, KMAP_PAGES);
 
-	return pt_populate_range(pml4, KERNEL_BASE + KERNEL_SIZE,
-				KERNEL_BASE + KERNEL_SIZE + KMAP_SIZE);
+	return pt_populate_range(pml4, KMAP_BASE, KMAP_BASE + KMAP_SIZE);
 }
 
 static int setup_fixed_mapping(pte_t *pml4)

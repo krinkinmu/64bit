@@ -37,6 +37,7 @@
 #define KMAP_SIZE (512ul * 1024ul * 1024ul - PAGE_SIZE)
 #endif
 
+#define KMAP_BASE         (KERNEL_BASE + KERNEL_SIZE)
 #define LOWMEM_SIZE       KERNEL_SIZE
 #define KERNEL_PAGES      (KERNEL_SIZE / PAGE_SIZE)
 #define KMAP_PAGES        (KMAP_SIZE / PAGE_SIZE)
