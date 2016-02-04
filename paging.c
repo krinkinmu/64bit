@@ -378,6 +378,136 @@ static int map_range_large(pte_t *pml4, virt_t from, virt_t to, phys_t phys)
 	return 0;
 }
 
+#define KMAP_ORDERS 16
+
+struct kmap_range {
+	struct list_head link;
+	pfn_t pages;
+};
+
+
+static struct kmap_range all_kmap_ranges[KMAP_PAGES];
+static struct list_head free_kmap_ranges[KMAP_ORDERS];
+
+static int kmap_order(pfn_t pages)
+{ return MIN(ilog2(pages), KMAP_ORDERS - 1); }
+
+static struct kmap_range *virt2kmap(virt_t vaddr)
+{
+	const pfn_t range = (vaddr - KERNEL_BASE - KERNEL_SIZE) >> PAGE_BITS;
+
+	return &all_kmap_ranges[range];
+}
+
+static virt_t kmap2virt(struct kmap_range *range)
+{
+	const pfn_t page = range - all_kmap_ranges;
+
+	return KERNEL_BASE + KERNEL_SIZE + (page << PAGE_BITS);
+}
+
+static struct kmap_range *kmap_find_free_range(int order, pfn_t pages)
+{
+	struct list_head *head = &free_kmap_ranges[order];
+	struct list_head *ptr = head->next;
+
+	for (; ptr != head; ptr = ptr->next) {
+		struct kmap_range *range = LIST_ENTRY(ptr, struct kmap_range,
+					link);
+
+		if (range->pages >= pages)
+			return range;
+	}
+	return 0;
+}
+
+static void kmap_free_range(struct kmap_range *range, pfn_t pages)
+{
+	if (range > all_kmap_ranges) {
+		struct kmap_range *prev = range - (range - 1)->pages;
+
+		if (!list_empty(&prev->link)) {
+			list_del(&prev->link);
+			pages += prev->pages;
+			range = prev;
+		}
+	}
+
+	if (range + pages < all_kmap_ranges + KMAP_PAGES) {
+		struct kmap_range *next = range + pages;
+
+		if (!list_empty(&next->link)) {
+			list_del(&next->link);
+			pages += next->pages;
+		}
+	}
+
+	(range + pages - 1)->pages = range->pages = pages;
+	list_add(&range->link, free_kmap_ranges + kmap_order(pages));
+}
+
+static struct kmap_range *kmap_alloc_range(pfn_t pages)
+{
+	for (int order = kmap_order(pages); order < KMAP_ORDERS; ++order) {
+		struct kmap_range *range = kmap_find_free_range(order, pages);
+
+		if (!range)
+			continue;
+
+		const pfn_t range_pages = range->pages;
+
+		list_del(&range->link);
+		list_init(&range->link);
+		(range + pages - 1)->pages = range->pages = pages;
+
+		if (range_pages > pages)
+			kmap_free_range(range + pages, range_pages - pages);
+
+		return range;
+	}
+	return 0;
+}
+
+void *kmap(struct page **pages, size_t count)
+{
+	struct kmap_range *range = kmap_alloc_range(count);
+
+	if (!range)
+		return 0;
+
+	const virt_t vaddr = kmap2virt(range);
+	pte_t *pt = va(load_pml4());
+
+	for (size_t i = 0; i != count; ++i) {
+		struct page *page = pages[i];
+
+		map_range(pt, vaddr, page_paddr(page), 1, PTE_WRITE);
+	}
+
+	return (void *)vaddr;
+}
+
+void kunmap(void *vaddr)
+{
+	struct kmap_range *range = virt2kmap((virt_t)vaddr);
+	const pfn_t count = range->pages;
+
+	pte_t *pt = va(load_pml4());
+	unmap_range(pt, (virt_t)vaddr, count);
+	kmap_free_range(range, range->pages);
+}
+
+static int setup_kmap_mapping(pte_t *pml4)
+{
+	for (int i = 0; i != KMAP_ORDERS; ++i)
+		list_init(&free_kmap_ranges[i]);
+
+	kmap_free_range(all_kmap_ranges, KMAP_PAGES);
+
+	return pt_populate_range(pml4, KERNEL_BASE + KERNEL_SIZE,
+				KERNEL_BASE + KERNEL_SIZE + KMAP_SIZE);
+}
+
 static int setup_fixed_mapping(pte_t *pml4)
 {
 	const virt_t bytes = max_pfns() << PAGE_BITS;
@@ -449,13 +579,29 @@ int map_range(pte_t *pml4, virt_t virt, phys_t phys, pfn_t pages,
 	}
 
 	return 0;
-	
 }
 
 int unmap_range(pte_t *pml4, virt_t virt, pfn_t pages)
 {
 	const virt_t from = virt;
 	const virt_t to = from + ((virt_t)pages << PAGE_BITS);
+
+	struct pt_iter iter;
+
+	for_each_slot_in_range(pml4, from, to, iter) {
+		DBG_ASSERT(iter.level == 0);
+
+		const int level = iter.level;
+		const int index = iter.idx[level];
+		pte_t *pt = iter.pt[level];
+
+		DBG_ASSERT(pt != 0);
+		DBG_ASSERT(!pte_present(pt[index]));
+
+		pt[index] = 0;
+		flush_tlb_addr(virt);
+		virt += PAGE_SIZE;
+	}
 
 	pt_release_range(pml4, from, to);
 	return 0;
@@ -472,5 +618,6 @@ void setup_paging(void)
 
 	DBG_ASSERT(setup_fixed_mapping(pt) == 0);
 	DBG_ASSERT(setup_kernel_mapping(pt) == 0);
+	DBG_ASSERT(setup_kmap_mapping(pt) == 0);
 	store_pml4(paddr);
 }

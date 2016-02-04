@@ -28,13 +28,13 @@
 #ifdef CONFIG_KERNEL_SIZE
 #define KERNEL_SIZE CONFIG_KERNEL_SIZE
 #else
-#define KERNEL_SIZE 3 * 512 * 1024 * 1024
+#define KERNEL_SIZE 3ul * 512ul * 1024ul * 1024ul
 #endif
 
 #ifdef CONFIG_KMAP_SIZE
 #define KMAP_SIZE CONFIG_KMAP_SIZE
 #else
-#define KMAP_SIZE 512 * 1024 * 1024
+#define KMAP_SIZE (512ul * 1024ul * 1024ul - PAGE_SIZE)
 #endif
 
 #define LOWMEM_SIZE       KERNEL_SIZE

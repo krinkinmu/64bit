@@ -13,8 +13,8 @@
 #define CONFIG_MIN_DEBUG_LEVEL  0
 #define CONFIG_RAMFS_TEST       /* run ramfs smoke test */
 #define CONFIG_IDE_TEST         /* run ide smoke test */
-#define CONFIG_KERNEL_SIZE      3 * 512 * 1024 * 1024
-#define CONFIG_KMAP_SIZE        512 * 1024 * 1024
+#define CONFIG_KERNEL_SIZE      (3ul * 512ul * 1024ul * 1024ul)
+#define CONFIG_KMAP_SIZE        (512ul * 1024ul * 1024ul - 4096ul)
 #define CONFIG_KERNEL_STACK     1
 
 #endif /*__KERNEL_CONFIG_H__*/
