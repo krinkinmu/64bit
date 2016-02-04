@@ -63,8 +63,10 @@ static unsigned long get_page_flags(int vma_flags)
 
 static struct page *copy_page(struct page *page)
 {
-	if (page->u.refcount == 1)
-		return get_page(page);
+	if (page->u.refcount == 1) {
+		get_page(page);
+		return page;
+	}
 
 	struct page *new = alloc_pages(0);
 
@@ -75,8 +77,8 @@ static struct page *copy_page(struct page *page)
 	void *src = page_addr(page);
 
 	memcpy(dst, src, PAGE_SIZE);
-
-	return get_page(new);
+	get_page(new);
+	return new;
 }
 
 static int anon_page_fault(struct vma *vma, virt_t vaddr, int access)
@@ -85,9 +87,11 @@ static int anon_page_fault(struct vma *vma, virt_t vaddr, int access)
 		return -EINVAL;
 
 	if (access == VMA_ACCESS_READ) {
+		get_page(zero_page);
+
 		const int rc = map_range(page_addr(vma->mm->pt),
 					vaddr,
-					page_paddr(get_page(zero_page)),
+					page_paddr(zero_page),
 					1, 0);
 
 		if (rc)
@@ -123,10 +127,11 @@ static int anon_page_fault(struct vma *vma, virt_t vaddr, int access)
 	if (!page)
 		return -ENOMEM;
 
+	get_page(page);	
 	memset(page_addr(page), 0, PAGE_SIZE);
-	
+
 	const int rc = map_range(page_addr(vma->mm->pt),
-				vaddr, page_paddr(get_page(page)), 1,
+				vaddr, page_paddr(page), 1,
 				get_page_flags(vma->perm));
 
 	if (rc)
@@ -306,9 +311,9 @@ struct mm *create_mm(void)
 
 	/*
 	 * kernel part is shared between the all threads, so we need to
-	 * copy at least kernel part of page table.
+	 * copy at least kernel part of page table, to make it usable.
 	 */
-	const size_t offset = pml4_index(HIGH_BASE) * sizeof(pte_t);
+	const size_t offset = pml4_i(HIGH_BASE) * sizeof(pte_t);
 
 	memcpy((char *)page_addr(pt) + offset,
 		(char *)va(load_pml4()) + offset, PAGE_SIZE - offset);
