@@ -54,13 +54,6 @@ static void free_mm(struct mm *mm)
 	kmem_cache_free(mm_cachep, mm);
 }
 
-static unsigned long get_page_flags(int vma_flags)
-{
-	return ((vma_flags & VMA_PERM_WRITE) != 0)
-				? (PTE_USER | PTE_WRITE)
-				: PTE_USER;
-}
-
 static struct page *copy_page(struct page *page)
 {
 	if (page->u.refcount == 1) {
@@ -81,45 +74,64 @@ static struct page *copy_page(struct page *page)
 	return new;
 }
 
-static int anon_page_fault(struct vma *vma, virt_t vaddr, int access)
+static struct page *mapped_page(struct mm *mm, virt_t addr)
+{
+	const virt_t from = addr;
+	const virt_t to = addr + PAGE_SIZE;
+	struct pt_iter iter;
+
+	for_each_slot_in_range(page_addr(mm->pt), from, to, iter) {
+		DBG_ASSERT(iter.pt[iter.level] != 0);
+
+		if (iter.level != 0)
+			return 0;
+
+		const int level = iter.level;
+		const int index = iter.idx[level];
+		pte_t *pt = iter.pt[level];
+		const pte_t pte = pt[index];
+
+		if (pte_present(pte)) {
+			const pfn_t pfn = pte_phys(pte) >> PAGE_BITS;
+			struct page *page = pfn2page(pfn);
+
+			return page;
+		}
+	}
+
+	return 0;
+}
+
+static int anon_page_fault(struct mm *mm, struct vma *vma,
+				virt_t vaddr, int access)
 {
 	if (access == VMA_ACCESS_WRITE && (vma->perm & VMA_PERM_WRITE) == 0)
 		return -EINVAL;
 
 	if (access == VMA_ACCESS_READ) {
-		get_page(zero_page);
-
-		const int rc = map_range(page_addr(vma->mm->pt),
-					vaddr,
-					page_paddr(zero_page),
-					1, 0);
-
-		if (rc)
-			put_page(zero_page);
+		const int rc = pt_populate_range(page_addr(mm->pt),
+					vaddr, vaddr + PAGE_SIZE);
+		if (!rc) {
+			__mmap_pages(mm, vaddr, &zero_page, 1, PTE_USER);
+			flush_tlb_addr(vaddr);
+		}
 
 		return rc;
 	}
 
-	struct pages set;
+	struct page *old = mapped_page(mm, vaddr);
 
-	if (gather_pages(page_addr(vma->mm->pt), vaddr, 1, &set) != 0) {
-		struct page *old = LIST_ENTRY(list_first(&set.head),
-					struct page, link);
+	if (old) {
 		struct page *new = copy_page(old);
 
 		if (!new)
 			return -ENOMEM;
 
-		const int rc = map_range(page_addr(vma->mm->pt),
-					vaddr, page_paddr(new), 1,
-					get_page_flags(vma->perm));
+		__mmap_pages(mm, vaddr, &new, 1, PTE_USER | PTE_WRITE);
+		flush_tlb_addr(vaddr);
+		put_page(old);
 
-		if (rc)
-			put_page(new);
-		else
-			put_page(old);
-
-		return rc;
+		return 0;
 	}
 
 	struct page *page = alloc_pages(0);
@@ -130,12 +142,13 @@ static int anon_page_fault(struct vma *vma, virt_t vaddr, int access)
 	get_page(page);	
 	memset(page_addr(page), 0, PAGE_SIZE);
 
-	const int rc = map_range(page_addr(vma->mm->pt),
-				vaddr, page_paddr(page), 1,
-				get_page_flags(vma->perm));
-
-	if (rc)
-		put_page(page);
+	const int rc = pt_populate_range(page_addr(mm->pt),
+				vaddr, vaddr + PAGE_SIZE);
+	if (!rc) {
+		__mmap_pages(mm, vaddr, &page, 1, PTE_USER);
+		flush_tlb_addr(vaddr);
+	}
+	put_page(page);
 
 	return rc;
 }
@@ -182,7 +195,7 @@ int mm_page_fault(struct thread *thread, virt_t vaddr, int access)
 	if (!mm)
 		return -EINVAL;
 
-	vaddr &= ~((virt_t)(PAGE_SIZE - 1));
+	vaddr &= ~((virt_t)PAGE_MASK);
 
 	struct vma_iter iter;
 
@@ -193,7 +206,7 @@ int mm_page_fault(struct thread *thread, virt_t vaddr, int access)
 	if (!lookup_vma(mm, vaddr, vaddr + 1, &iter))
 		return -EINVAL;
 
-	return iter.vma->fault(iter.vma, vaddr, access);
+	return iter.vma->fault(mm, iter.vma, vaddr, access);
 }
 
 static void insert_vma(struct mm *mm, struct vma *vma)
@@ -237,30 +250,13 @@ int mmap(virt_t begin, virt_t end, int perm)
 	return __mmap(current()->mm, begin, end, perm);
 }
 
-static void unmap_vma_range(struct mm *mm, virt_t begin, virt_t end)
-{
-	struct pages set;
-
-	gather_pages(page_addr(mm->pt), begin, (end - begin) >> PAGE_BITS,
-			&set);
-	unmap_range(page_addr(mm->pt), begin, (end - begin) >> PAGE_BITS);
-
-	struct list_head *head = &set.head;
-	struct list_head *ptr = head->next;
-
-	while (ptr != head) {
-		struct page *page = LIST_ENTRY(ptr, struct page, link);
-
-		ptr = ptr->next;
-		put_page(page);
-	}
-}
-
 void __munmap(struct mm *mm, virt_t begin, virt_t end)
 {
 	struct vma_iter iter;
 
-	unmap_vma_range(mm, begin, end);
+	__munmap_pages(mm, begin, (end - begin) >> PAGE_BITS);
+	pt_release_range(page_addr(mm->pt), begin, end);
+
 	while (lookup_vma(mm, begin, end, &iter)) {
 		struct vma *vma = iter.vma;
 
@@ -331,6 +327,59 @@ static void unmap_all_vma(struct mm *mm)
 
 		ptr = rb_next(ptr);
 		__munmap(mm, vma->begin, vma->end);
+	}
+}
+
+void __mmap_pages(struct mm *mm, virt_t addr, struct page **pages, pfn_t count,
+			unsigned long flags)
+{
+	DBG_ASSERT((addr & PAGE_MASK) == 0);
+
+	const virt_t from = addr;
+	const virt_t to = from + ((virt_t)count << PAGE_BITS);
+
+	struct pt_iter iter;
+	pfn_t i = 0;
+
+	for_each_slot_in_range(page_addr(mm->pt), from, to, iter) {
+		DBG_ASSERT(iter.level == 0);
+		DBG_ASSERT(iter.pt[iter.level] != 0);
+
+		struct page *page = pages[i++];
+		const phys_t paddr = page_paddr(page);
+		const int index = iter.idx[iter.level];
+		pte_t *pt = iter.pt[iter.level];
+
+		get_page(page);
+		pt[index] = paddr | flags | PTE_PRESENT;
+	}
+}
+
+void __munmap_pages(struct mm *mm, virt_t addr, pfn_t count)
+{
+	DBG_ASSERT((addr & PAGE_MASK) == 0);
+
+	const virt_t from = addr;
+	const virt_t to = from + ((virt_t)count << PAGE_BITS);
+
+	struct pt_iter iter;
+
+	for_each_slot_in_range(page_addr(mm->pt), from, to, iter) {
+		DBG_ASSERT(iter.level == 0);
+		DBG_ASSERT(iter.pt[iter.level] != 0);
+
+		const int index = iter.idx[iter.level];
+		pte_t *pt = iter.pt[iter.level];
+		const pte_t pte = pt[index];
+
+		pt[index] = 0;
+		if (pte_present(pte)) {
+			const phys_t phys = pte_phys(pte);
+			const pfn_t pfn = phys >> PAGE_BITS;
+			struct page *page = pfn2page(pfn);
+
+			put_page(page);
+		}
 	}
 }
 

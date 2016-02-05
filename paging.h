@@ -81,7 +81,7 @@ bool pt_iter_large(const struct pt_iter *iter);
 
 int pt_populate_range(pte_t *pml4, virt_t from, virt_t to);
 int pt_populate_range_large(pte_t *pml4, virt_t from, virt_t to);
-void pt_relase_range(pte_t *pml4, virt_t from, virt_t to);
+void pt_release_range(pte_t *pml4, virt_t from, virt_t to);
 
 static inline void get_page(struct page *page)
 { ++page->u.refcount; }
@@ -126,10 +126,10 @@ struct pages {
 	size_t count;
 };
 
-size_t gather_pages(pte_t *pt, virt_t virt, pfn_t pages, struct pages *set);
-int map_range(pte_t *pt, virt_t virt, phys_t phys, pfn_t pages,
-			unsigned long flags);
-int unmap_range(pte_t *pt, virt_t virt, pfn_t pages);
+//size_t gather_pages(pte_t *pt, virt_t virt, pfn_t pages, struct pages *set);
+//int map_range(pte_t *pt, virt_t virt, phys_t phys, pfn_t pages,
+//			unsigned long flags);
+//int unmap_range(pte_t *pt, virt_t virt, pfn_t pages);
 
 
 void setup_paging(void);

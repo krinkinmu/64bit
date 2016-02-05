@@ -23,7 +23,7 @@ struct vma {
 	virt_t end;
 	int perm;
 	struct mm *mm;
-	int (*fault)(struct vma *, virt_t, int);
+	int (*fault)(struct mm *, struct vma *, virt_t, int);
 };
 
 struct mm {
@@ -42,6 +42,9 @@ int mm_page_fault(struct thread *thread, virt_t vaddr, int access);
 /* work with current thread mm */
 int __mmap(struct mm *mm, virt_t begin, virt_t end, int perm);
 void __munmap(struct mm *mm, virt_t begin, virt_t end);
+void __mmap_pages(struct mm *mm, virt_t addr, struct page **pages, pfn_t count,
+			unsigned long flags);
+void __munmap_pages(struct mm *mm, virt_t addr, pfn_t count);
 int mmap(virt_t begin, virt_t end, int perm);
 void munmap(virt_t begin, virt_t end);
 
