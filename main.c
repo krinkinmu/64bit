@@ -45,6 +45,35 @@ static void test_exec(void)
 		DBG_INFO("exec finished successfully");
 }
 
+static void test_page_fault(void)
+{
+	DBG_INFO("start page fault test");
+
+	int rc = mmap(PAGE_SIZE, 2 * PAGE_SIZE, 0);
+	char *ptr = (char *)PAGE_SIZE;
+
+	if (rc)
+		DBG_ERR("mmap failed with error %s", errstr(rc));
+
+	for (int i = 0; i != PAGE_SIZE; ++i)
+		DBG_ASSERT(ptr[i] == 0);
+	munmap(PAGE_SIZE, 2 * PAGE_SIZE);
+
+	rc = mmap(PAGE_SIZE, 2 * PAGE_SIZE, VMA_PERM_WRITE);
+
+	if (rc)
+		DBG_ERR("mmap failed with error %s", errstr(rc));
+
+	for (int i = 0; i != PAGE_SIZE; ++i)
+		ptr[i] = (char)i;
+
+	for (int i = 0; i != PAGE_SIZE; ++i)
+		DBG_ASSERT(ptr[i] == (char)i);
+	munmap(PAGE_SIZE, 2 * PAGE_SIZE);
+
+	DBG_INFO("finish page fault test");
+}
+
 static int start(void *dummy)
 {
 	(void) dummy;
@@ -53,6 +82,7 @@ static int start(void *dummy)
 	setup_initramfs();
 	setup_ide(); // we aren't going to use it in near future
 	test_threading();
+	test_page_fault();
 	test_exec();
 
 	DBG_INFO("Jump to userspace!!!");
