@@ -120,9 +120,14 @@ static struct page *alloc_page_table(void)
 
 	if (page) {
 		memset(va(page_paddr(page)), 0, PAGE_SIZE);
-		page->u.refcount = 1;
+		page->u.refcount = 0;
 	}
 	return page;
+}
+
+static void free_page_table(struct page *page)
+{
+	free_pages(page, 0);
 }
 
 static void pt_release_pml2(pte_t *pml2, virt_t from, virt_t to)
@@ -131,17 +136,22 @@ static void pt_release_pml2(pte_t *pml2, virt_t from, virt_t to)
 
 	for (int i = pml2_i(from); vaddr != to; ++i) {
 		const pte_t pte = pml2[i];
+		const virt_t bytes =
+			MINU(PML1_SIZE - (vaddr & PML1_MASK), to - vaddr);	
+		const pfn_t pages = bytes >> PAGE_BITS;
 
 		if (pte_present(pte) && !pte_large(pte)) {
 			const pfn_t pfn = pte_phys(pte) >> PAGE_BITS;
 			struct page *pt = pfn2page(pfn);
 
-			if (pt->u.refcount == 1)
-				pml2[i] = 0;
-			put_page(pt);
-		}
+			pt->u.refcount -= pages;
 
-		vaddr += MINU(PML1_SIZE - (vaddr & PML1_MASK), to - vaddr);	
+			if (pt->u.refcount == 0) {
+				pml2[i] = 0;
+				free_page_table(pt);
+			}
+		}
+		vaddr += bytes;	
 	}
 }
 
@@ -150,29 +160,27 @@ static int pt_populate_pml2(pte_t *pml2, virt_t from, virt_t to, bool large)
 	virt_t vaddr = from;
 
 	for (int i = pml2_i(from); vaddr != to; ++i) {
-		struct page *pt = 0;
+		const virt_t bytes =
+			MINU(PML1_SIZE - (vaddr & PML1_MASK), to - vaddr);
+		const pfn_t pages = bytes >> PAGE_BITS;
 
 		if (!pte_present(pml2[i]) && !large) {
-			pt = alloc_page_table();
+			struct page *pt = alloc_page_table();
 
 			if (!pt) {
 				pt_release_pml2(pml2, from, vaddr);
 				return -ENOMEM;
 			}
 
+			pt->u.refcount += pages;
 			pml2[i] = page_paddr(pt) | PT_FLAGS;
-		} else {
-			const pte_t pte = pml2[i];
+		} else if (pte_present(pml2[i]) && !pte_large(pml2[i])) {
+			const pfn_t pfn = pte_phys(pml2[i]) >> PAGE_BITS;
+			struct page *pt = pfn2page(pfn);
 
-			if (!pte_large(pte)) {
-				const pfn_t pfn = pte_phys(pte) >> PAGE_BITS;
-
-				pt = pfn2page(pfn);
-				get_page(pt);
-			}
+			pt->u.refcount += pages;
 		}
-
-		vaddr += MINU(PML1_SIZE - (vaddr & PML1_MASK), to - vaddr);
+		vaddr += bytes;
 	}
 
 	return 0;
@@ -186,6 +194,7 @@ static void pt_release_pml3(pte_t *pml3, virt_t from, virt_t to)
 		const pte_t pte = pml3[i];
 		const virt_t bytes = MINU(PML2_SIZE - (vaddr & PML2_MASK),
 					to - vaddr);
+		const pfn_t pages = bytes >> PAGE_BITS;
 
 		if (pte_present(pte)) {
 			const phys_t paddr = pte_phys(pte);
@@ -193,10 +202,12 @@ static void pt_release_pml3(pte_t *pml3, virt_t from, virt_t to)
 			struct page *pt = pfn2page(pfn);
 
 			pt_release_pml2(va(paddr), vaddr, vaddr + bytes);
+			pt->u.refcount -= pages;
 
-			if (pt->u.refcount == 1)
+			if (pt->u.refcount == 0) {
 				pml3[i] = 0;
-			put_page(pt);
+				free_page_table(pt);
+			}
 		}
 		vaddr += bytes;	
 	}
@@ -209,6 +220,9 @@ static int pt_populate_pml3(pte_t *pml3, virt_t from, virt_t to, bool large)
 	for (int i = pml3_i(from); vaddr != to; ++i) {
 		struct page *pt = 0;
 		phys_t paddr = 0;
+		const virt_t bytes =
+			MINU(PML2_SIZE - (vaddr & PML2_MASK), to - vaddr);
+		const pfn_t pages = bytes >> PAGE_BITS;
 
 		if (!pte_present(pml3[i])) {
 			pt = alloc_page_table();
@@ -225,20 +239,23 @@ static int pt_populate_pml3(pte_t *pml3, virt_t from, virt_t to, bool large)
 
 			paddr = pte_phys(pte);
 			pt = pfn2page(paddr >> PAGE_BITS);
-			get_page(pt);
 		}
+		pt->u.refcount += pages;
 
-		const virt_t bytes = MINU(PML2_SIZE - (vaddr & PML2_MASK),
-					to - vaddr);
 		const int rc = pt_populate_pml2(va(paddr), vaddr, vaddr + bytes,
 					large);
 
 		if (rc) {
-			put_page(pt);
 			pt_release_pml3(pml3, from, vaddr);
+			pt->u.refcount -= pages;
+
+			if (pt->u.refcount == 0) {
+				pml3[i] = 0;
+				free_page_table(pt);
+			}
+
 			return rc;
 		}
-
 		vaddr += bytes;
 	}
 
@@ -251,8 +268,9 @@ static void pt_release_pml4(pte_t *pml4, virt_t from, virt_t to)
 
 	for (int i = pml4_i(from); vaddr != to; ++i) {
 		const pte_t pte = pml4[i];
-		const virt_t bytes = MINU(PML3_SIZE - (vaddr & PML3_MASK),
-					to - vaddr);
+		const virt_t bytes =
+			MINU(PML3_SIZE - (vaddr & PML3_MASK), to - vaddr);
+		const pfn_t pages = bytes >> PAGE_BITS;
 
 		if (pte_present(pte)) {
 			const phys_t paddr = pte_phys(pte);
@@ -260,10 +278,12 @@ static void pt_release_pml4(pte_t *pml4, virt_t from, virt_t to)
 			struct page *pt = pfn2page(pfn);
 
 			pt_release_pml3(va(paddr), vaddr, vaddr + bytes);
+			pt->u.refcount -= pages;
 
-			if (pt->u.refcount == 1)
+			if (pt->u.refcount == 0) {
 				pml4[i] = 0;
-			put_page(pt);
+				free_page_table(pt);
+			}
 		}
 		vaddr += bytes;	
 	}
@@ -276,6 +296,9 @@ static int pt_populate_pml4(pte_t *pml4, virt_t from, virt_t to, bool large)
 	for (int i = pml4_i(from); vaddr < to; ++i) {
 		struct page *pt = 0;
 		phys_t paddr = 0;
+		const virt_t bytes =
+			MINU(PML3_SIZE - (vaddr & PML3_MASK), to - vaddr);
+		const pfn_t pages = bytes >> PAGE_BITS;
 
 		if (!pte_present(pml4[i])) {
 			pt = alloc_page_table();
@@ -292,17 +315,21 @@ static int pt_populate_pml4(pte_t *pml4, virt_t from, virt_t to, bool large)
 
 			paddr = pte_phys(pte);
 			pt = pfn2page(paddr >> PAGE_BITS);
-			get_page(pt);
 		}
+		pt->u.refcount += pages;
 
-		const virt_t bytes = MINU(PML3_SIZE - (vaddr & PML3_MASK),
-					to - vaddr);
 		const int rc = pt_populate_pml3(va(paddr), vaddr, vaddr + bytes,
 					large);
 
 		if (rc) {
-			put_page(pt);
 			pt_release_pml4(pml4, from, vaddr);
+			pt->u.refcount -= pages;
+
+			if (pt->u.refcount == 0) {
+				pml4[i] = 0;
+				free_page_table(pt);
+			}
+
 			return rc;
 		}
 

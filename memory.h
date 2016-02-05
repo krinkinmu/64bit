@@ -80,7 +80,7 @@ struct page {
 
 	union {
 		struct kmem_slab *slab;
-		int refcount;
+		unsigned long refcount;
 		int order;
 	} u;
 };
