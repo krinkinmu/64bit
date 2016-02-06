@@ -313,6 +313,61 @@ struct mm *create_mm(void)
 	return mm;
 }
 
+static int copy_vma(struct mm *dst, struct vma *vma)
+{
+	if (__mmap(dst, vma->begin, vma->end, vma->perm))
+		return -ENOMEM;
+
+	struct mm *old_mm = vma->mm;
+	pte_t *pt = page_addr(old_mm->pt);
+	struct pt_iter iter;
+
+	for_each_slot_in_range(pt, vma->begin, vma->end, iter) {
+		DBG_ASSERT(iter.level == 0);
+		DBG_ASSERT(iter.pt[iter.level] != 0);
+
+		const int level = iter.level;
+		const int index = iter.idx[level];
+		const pte_t pte = iter.pt[level][index];
+
+		if (!pte_present(pte))
+			continue;
+
+		const phys_t phys = pte_phys(pte);
+		struct page *page = pfn2page(phys >> PAGE_BITS);
+
+		if ((pte & PTE_WRITE) != 0) {
+			iter.pt[level][index] &= ~((pte_t)PTE_WRITE);
+			flush_tlb_addr(iter.addr);
+		}
+		__mmap_pages(dst, iter.addr, &page, 1, PTE_USER);
+	}
+
+	return 0;
+}
+
+struct mm *copy_mm(struct mm *mm)
+{
+	struct mm *new_mm = create_mm();
+
+	if (!new_mm)
+		return 0;
+
+	struct rb_node *ptr = rb_leftmost(mm->vma.root);
+
+	while (ptr) {
+		struct vma *vma = TREE_ENTRY(ptr, struct vma, link);
+
+		ptr = rb_next(ptr);
+		if (copy_vma(new_mm, vma)) {
+			release_mm(new_mm);
+			return 0;
+		}
+	}
+
+	return new_mm;
+}
+
 static void unmap_all_vma(struct mm *mm)
 {
 	struct rb_node *ptr = rb_leftmost(mm->vma.root);

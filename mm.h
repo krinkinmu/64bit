@@ -33,6 +33,7 @@ struct mm {
 
 
 struct mm *create_mm(void);
+struct mm *copy_mm(struct mm *mm);
 void release_mm(struct mm *mm);
 
 struct thread;
