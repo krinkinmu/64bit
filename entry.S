@@ -94,6 +94,13 @@ __kernel_thread_entry:
 	addq $136, %rsp
 	iretq // jump to user space or exit
 
+	.global __jump_to_userspace
+__jump_to_userspace:
+	RESTORE_VOLATILE
+	RESTORE_NONVOLATILE
+	addq $136, %rsp
+	iretq
+
 
 #define ENTRY_NAME(nr) entry ## nr
 
