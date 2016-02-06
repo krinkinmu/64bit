@@ -47,6 +47,7 @@ static inline pid_t thread_pid(const struct thread *thread)
 { return thread->pid; }
 
 pid_t create_kthread(int (*fptr)(void *), void *arg);
+pid_t fork(void);
 void activate_thread(struct thread *thread);
 int wait_thread(pid_t pid);
 void exit_thread(void);

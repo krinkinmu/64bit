@@ -283,6 +283,52 @@ pid_t create_kthread(int (*fptr)(void *), void *arg)
 	return pid;
 }
 
+static pid_t __fork(void)
+{
+	const size_t frame_size = sizeof(struct thread_start_frame);
+	extern void __jump_to_userspace(void);
+
+	struct thread *thread = alloc_thread();
+
+	if (!thread)
+		return -ENOMEM;
+
+	const int rc = copy_mm(thread->mm, current()->mm);
+
+	if (rc)	{
+		put_thread(thread);
+		return rc;
+	}
+
+	struct thread_start_frame *frame =
+		(void *)((char *)thread_stack_end(thread) - frame_size);
+
+	frame->regs = *thread_regs(current());
+	frame->regs.rax = 0; // syscall return value for child process
+	frame->frame.entry = (uint64_t)&__jump_to_userspace;
+
+	thread->stack_pointer = frame;
+	register_thread(thread);
+
+	return thread_pid(thread);
+}
+
+pid_t fork(void)
+{
+	pid_t pid = __fork();
+
+	if (pid < 0)
+		return pid;
+
+	struct thread *thread = lookup_thread(pid);
+
+	DBG_ASSERT(thread != 0);
+
+	activate_thread(thread);
+	put_thread(thread);
+	return pid;
+}
+
 /*
  * every thread in kernel except dying one has thread_regs at the top of
  * the stack - this is contract!!!
