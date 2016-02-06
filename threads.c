@@ -176,58 +176,13 @@ struct thread *lookup_thread(pid_t pid)
 	return iter.thread;
 }
 
-static struct thread *__create_thread(int (*fptr)(void *), void *data,
-			void *stack, size_t size)
+static void register_thread(struct thread *thread)
 {
-	const size_t frame_size = sizeof(struct thread_start_frame);
-	extern void __kernel_thread_entry(void);
-
-	if (size < frame_size)
-		return 0;
-
-	struct thread *thread = scheduler->alloc();
-
-	if (!thread)
-		return 0;
-
-	thread->mm = create_mm();
-	if (!thread->mm) {
-		scheduler->free(thread);
-		return 0;
-	}
-
-	struct thread_start_frame *frame =
-				(void *)((char *)stack + size - frame_size);
-
-	memset(frame, 0, sizeof(*frame));
-
-	/* all kernel threads start in kernel_thread_entry */
-	frame->frame.entry = (uint64_t)&__kernel_thread_entry;
-
-	/* kernel_thread_entry arguments */
-	frame->regs.rdi = (uint64_t)thread;
-	frame->regs.rsi = (uint64_t)fptr;
-	frame->regs.rdx = (uint64_t)data;
-
-	/*
-	 * after kernel_thread_entry finished we stil have thread_regs on
-	 * the stack, initialize it to iret to finish_thread. Thread function
-	 * can overwrite it to jump in userspace.
-	 */
-	frame->regs.ss = (uint64_t)KERNEL_DS;
-	frame->regs.cs = (uint64_t)KERNEL_CS;
-	frame->regs.rsp = (uint64_t)((char *)stack + size);
-	frame->regs.rip = (uint64_t)&exit_thread; // finish thread on exit
-
-	spinlock_init(&thread->lock);
-	thread->refcount = 1; // one for wait
-	thread->stack_pointer = frame;
-	thread->state = THREAD_BLOCKED;
-
+	static pid_t next_pid;
 	struct thread_iter iter;
+
 	const bool enabled = spin_lock_irqsave(&threads_lock);
 
-	static pid_t next_pid = 0;
 	thread->pid = next_pid++;
 
 	while (__lookup_thread(&iter, thread_pid(thread)))
@@ -236,11 +191,9 @@ static struct thread *__create_thread(int (*fptr)(void *), void *data,
 	rb_link(&thread->node, iter.parent, iter.plink);
 	rb_insert(&thread->node, &threads);
 	spin_unlock_irqrestore(&threads_lock, enabled);
-
-	return thread;
 }
 
-static pid_t create_thread(int (*fptr)(void *), void *arg)
+static struct thread *alloc_thread(void)
 {
 	const size_t stack_order = KERNEL_STACK_ORDER;
 	const size_t stack_pages = (size_t)1 << stack_order;
@@ -249,23 +202,74 @@ static pid_t create_thread(int (*fptr)(void *), void *arg)
 	struct page *stack = alloc_pages(stack_order);
 
 	if (!stack)
-		return -ENOMEM;
+		return 0;
 
-	struct thread *thread = __create_thread(fptr, arg,
-				page_addr(stack), stack_size);
+	struct thread *thread = scheduler->alloc();
 
 	if (!thread) {
 		free_pages(stack, stack_order);
-		return -ENOMEM;
+		return 0;
 	}
-	
+
+	thread->mm = create_mm();
+	if (!thread->mm) {
+		scheduler->free(thread);
+		free_pages(stack, stack_order);
+		return 0;
+	}
+
+	spinlock_init(&thread->lock);
+	thread->refcount = 1; // one for wait
 	thread->stack = stack;
+	thread->state = THREAD_BLOCKED;
+	thread->pid = -1;
+
+	memset(thread_stack_begin(thread), 0, stack_size);
+	thread->stack_pointer = thread_stack_end(thread);
+
+	return thread;
+}
+
+static pid_t __create_kthread(int (*fptr)(void *), void *arg)
+{
+	const size_t frame_size = sizeof(struct thread_start_frame);
+	extern void __kernel_thread_entry(void);
+
+	struct thread *thread = alloc_thread();
+
+	if (!thread)
+		return -ENOMEM;
+
+	struct thread_start_frame *frame =
+		(void *)((char *)thread_stack_end(thread) - frame_size);
+
+	/* all kernel threads start in kernel_thread_entry */
+	frame->frame.entry = (uint64_t)&__kernel_thread_entry;
+
+	/* kernel_thread_entry arguments */
+	frame->regs.rdi = (uint64_t)thread;
+	frame->regs.rsi = (uint64_t)fptr;
+	frame->regs.rdx = (uint64_t)arg;
+
+	/*
+	 * after kernel_thread_entry finished we stil have thread_regs on
+	 * the stack, initialize it to iret to exit_thread. Thread function
+	 * can overwrite it to jump in userspace.
+	 */
+	frame->regs.ss = (uint64_t)KERNEL_DS;
+	frame->regs.cs = (uint64_t)KERNEL_CS;
+	frame->regs.rsp = (uint64_t)(thread_stack_end(thread));
+	frame->regs.rip = (uint64_t)&exit_thread; // finish thread on exit
+
+	thread->stack_pointer = frame;
+	register_thread(thread);
+
 	return thread_pid(thread);
 }
 
 pid_t create_kthread(int (*fptr)(void *), void *arg)
 {
-	const pid_t pid = create_thread(fptr, arg);
+	const pid_t pid = __create_kthread(fptr, arg);
 
 	if (pid < 0)
 		return pid;
