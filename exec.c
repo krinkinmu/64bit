@@ -108,7 +108,8 @@ static int check_elf_hdr(const struct elf_hdr *hdr)
 	return 0;
 }
 
-static int map_elf_phdr(const struct elf_phdr *phdr, struct fs_file *file)
+static int map_elf_phdr(struct mm *mm, const struct elf_phdr *phdr,
+			struct fs_file *file)
 {
 	if (phdr->p_type != PT_LOAD)
 		return 0;
@@ -116,8 +117,9 @@ static int map_elf_phdr(const struct elf_phdr *phdr, struct fs_file *file)
 	const virt_t begin = phdr->p_vaddr;
 	const virt_t end = begin + phdr->p_memsz;
 	const int perm = ((phdr->p_flags & PF_W) != 0) ? VMA_PERM_WRITE : 0;
+	const unsigned long flags = (perm == VMA_PERM_WRITE) ? PTE_WRITE : 0;
 
-	int rc = mmap(begin, end, perm);
+	int rc = __mmap(mm, begin, end, perm);
 
 	if (rc)
 		return rc;
@@ -129,44 +131,63 @@ static int map_elf_phdr(const struct elf_phdr *phdr, struct fs_file *file)
 	if (rc < 0)
 		return rc;
 
-	return read_buf(file, (void *)begin, (size_t)phdr->p_filesz);
+	struct page *page = 0;
+	virt_t addr = ALIGN_DOWN(begin, PAGE_SIZE);
+	size_t offset = begin & PAGE_MASK;
+	size_t remain = phdr->p_filesz;
+
+	while (remain) {
+		page = alloc_pages(0);
+
+		if (!page) {
+			__munmap(mm, begin, end);
+			return -ENOMEM;
+		}
+
+		const size_t size = MINU(remain, PAGE_SIZE - offset);
+		char *buffer = page_addr(page);
+
+		memset(buffer, 0, PAGE_SIZE);
+
+		const int rc = read_buf(file, buffer + offset, size);
+
+		if (rc) {
+			free_pages(page, 0);
+			__munmap(mm, begin, end);
+			return rc;
+		}
+
+		__mmap_pages(mm, addr, &page, 1, flags | PTE_USER);
+
+		addr += PAGE_SIZE;
+		remain -= size;
+		offset = 0;
+	}
+
+	return 0;
 }
 
-static int setup_task_mm(const struct elf_hdr *hdr, struct fs_file *file)
+static int load_binary(struct mm *mm, const struct elf_hdr *hdr,
+			struct fs_file *file)
 {
-	struct thread *thread = current();
-	struct mm *mm = create_mm();
-
-	if (!mm)
-		return -ENOMEM;
-
-	/* set new mm to employ page faults */
-	thread->mm = mm;
-	store_pml4(page_paddr(mm->pt));
-
 	int offset = hdr->e_phoff;
 
 	for (int i = 0; i != (int)hdr->e_phnum; ++i) {
 		int rc = vfs_seek(file, offset, FSS_SET);
 
-		if (rc < 0) {
-			release_mm(mm);
+		if (rc < 0)
 			return rc;
-		}
 
 		struct elf_phdr phdr;
 
 		rc = read_elf_phdr(file, &phdr);
-		if (rc < 0) {
-			release_mm(mm);
+		if (rc < 0)
 			return rc;
-		}
 
-		rc = map_elf_phdr(&phdr, file);
-		if (rc < 0) {
-			release_mm(mm);
+		rc = map_elf_phdr(mm, &phdr, file);
+		if (rc < 0)
 			return rc;
-		}
+
 		offset += hdr->e_phentsize;
 	}
 
@@ -175,7 +196,6 @@ static int setup_task_mm(const struct elf_hdr *hdr, struct fs_file *file)
 
 int exec(const char *name)
 {
-	struct thread *thread = current();
 	struct fs_file file;
 
 	int rc = vfs_open(name, &file);
@@ -186,22 +206,36 @@ int exec(const char *name)
 	struct elf_hdr hdr;
 
 	rc = read_elf_hdr(&file, &hdr);
-	if (rc)
-		goto out;
-
-	rc = check_elf_hdr(&hdr);
-	if (rc)
-		goto out;
-
-	struct mm *old_mm = thread->mm;
-
-	rc = setup_task_mm(&hdr, &file);
 	if (rc) {
-		thread->mm = old_mm;
-		store_pml4(page_paddr(old_mm->pt));
-		goto out;
+		vfs_release(&file);
+		return rc;
 	}
 
+	rc = check_elf_hdr(&hdr);
+	if (rc) {
+		vfs_release(&file);
+		return rc;
+	}
+
+	struct mm *new_mm = create_mm();
+
+	if (!new_mm) {
+		vfs_release(&file);
+		return -ENOMEM;
+	}
+
+	rc = load_binary(new_mm, &hdr, &file);
+	if (rc) {
+		release_mm(new_mm);
+		vfs_release(&file);
+		return rc;
+	}
+
+	struct thread *thread = current();
+	struct mm *old_mm = thread->mm;
+
+	thread->mm = new_mm;
+	store_pml4(page_paddr(new_mm->pt));
 	release_mm(old_mm);
 
 	struct thread_regs *regs = thread_regs(thread);
@@ -211,8 +245,6 @@ int exec(const char *name)
 	regs->cs = USER_CS;
 	regs->ss = USER_DS;
 	regs->rflags = RFLAGS_IF;
-
-out:
 	vfs_release(&file);
 
 	return rc;
