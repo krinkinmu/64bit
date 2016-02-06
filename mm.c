@@ -346,26 +346,20 @@ static int copy_vma(struct mm *dst, struct vma *vma)
 	return 0;
 }
 
-struct mm *copy_mm(struct mm *mm)
+int copy_mm(struct mm *dst, struct mm *src)
 {
-	struct mm *new_mm = create_mm();
-
-	if (!new_mm)
-		return 0;
-
-	struct rb_node *ptr = rb_leftmost(mm->vma.root);
+	struct rb_node *ptr = rb_leftmost(src->vma.root);
 
 	while (ptr) {
 		struct vma *vma = TREE_ENTRY(ptr, struct vma, link);
+		const int rc = copy_vma(dst, vma);
 
+		if (rc)
+			return rc;
 		ptr = rb_next(ptr);
-		if (copy_vma(new_mm, vma)) {
-			release_mm(new_mm);
-			return 0;
-		}
 	}
 
-	return new_mm;
+	return 0;
 }
 
 static void unmap_all_vma(struct mm *mm)
