@@ -58,8 +58,8 @@ struct pt_iter *pt_iter_set(struct pt_iter *iter, pte_t *pml4, virt_t addr)
 		iter->pt[level] = pt;
 	}
 
+	iter->addr = pt_iter_addr(iter);
 	iter->level = level;
-	iter->addr = addr;
 
 	return iter;
 }
