@@ -24,6 +24,7 @@
 #define HIGH_BASE         0xffff800000000000ul
 #define PHYSICAL_BASE     0x0000000000000000ul
 #define MAX_PHYS_SIZE     BIT_CONST(36)       // max 0.5GB of page structs
+#define TASK_SIZE         0x0000800000000000ul
 
 #ifdef CONFIG_KERNEL_SIZE
 #define KERNEL_SIZE CONFIG_KERNEL_SIZE

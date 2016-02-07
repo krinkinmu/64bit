@@ -13,6 +13,12 @@
 #include <stddef.h>
 
 
+#ifndef CONFIG_USER_STACK_SIZE
+#define USER_STACK_SIZE CONFIG_USER_STACK_SIZE
+#else
+#define USER_STACK_SIZE (2ul * 1024ul * 1024ul)
+#endif
+
 #define ELF_NIDENT      16
 #define ELF_CLASS       4
 #define ELF_DATA        5
@@ -194,6 +200,22 @@ static int load_binary(struct mm *mm, const struct elf_hdr *hdr,
 	return 0;
 }
 
+static int setup_stack(struct mm *mm, size_t size)
+{
+	const virt_t stack_size = ALIGN(size, PAGE_SIZE);
+	const virt_t stack_begin = TASK_SIZE - stack_size;
+	const virt_t stack_end = TASK_SIZE;
+
+	const int rc = __mmap(mm, stack_begin, stack_end, VMA_PERM_WRITE);
+
+	if (rc)
+		return rc;
+
+	mm->stack = lookup_vma(mm, stack_begin);
+	DBG_ASSERT(mm->stack != 0);
+	return 0;
+}
+
 int exec(const char *name)
 {
 	struct fs_file file;
@@ -224,6 +246,13 @@ int exec(const char *name)
 		return -ENOMEM;
 	}
 
+	rc = setup_stack(new_mm, USER_STACK_SIZE);
+	if (rc) {
+		release_mm(new_mm);
+		vfs_release(&file);
+		return rc;
+	}
+
 	rc = load_binary(new_mm, &hdr, &file);
 	if (rc) {
 		release_mm(new_mm);
@@ -242,6 +271,7 @@ int exec(const char *name)
 
 	memset(regs, 0, sizeof(*regs));
 	regs->rip = hdr.e_entry;
+	regs->rsp = new_mm->stack->end;
 	regs->cs = USER_CS;
 	regs->ss = USER_DS;
 	regs->rflags = RFLAGS_IF;
