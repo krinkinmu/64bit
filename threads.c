@@ -132,7 +132,10 @@ int thread_entry(struct thread *thread, int (*fptr)(void *),
 {
 	place_thread(thread);
 	local_preempt_enable();
-	return fptr(arg);
+
+	if (fptr)
+		return fptr(arg);
+	return 0;
 }
 
 static int __lookup_thread(struct thread_iter *iter, pid_t pid)
@@ -304,12 +307,12 @@ static pid_t __fork(void)
 	struct thread_start_frame *frame =
 		(void *)((char *)thread_stack_end(thread) - frame_size);
 
-	frame->regs = *thread_regs(current());
-
 	frame->frame.entry = (uint64_t)&__thread_entry;
 	frame->frame.r15 = (uint64_t)thread;
-	frame->frame.r14 = (uint64_t)&__jump_to_userspace;
+	frame->frame.r14 = 0;
 	frame->frame.r13 = 0;
+
+	frame->regs = *thread_regs(current());
 	frame->regs.rax = 0; // syscall return value for child process
 
 	thread->stack_pointer = frame;
