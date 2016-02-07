@@ -16,5 +16,6 @@
 #define CONFIG_KERNEL_SIZE      (3ul * 512ul * 1024ul * 1024ul)
 #define CONFIG_KMAP_SIZE        (512ul * 1024ul * 1024ul - 4096ul)
 #define CONFIG_KERNEL_STACK     1
+#define CONFIG_USER_STACK_SIZE  (2ul * 1024ul * 1024ul) // 2M is enough so far
 
 #endif /*__KERNEL_CONFIG_H__*/

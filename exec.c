@@ -1,5 +1,6 @@
 #include "thread_regs.h"
 #include "threads.h"
+#include "kernel.h"
 #include "paging.h"
 #include "memory.h"
 #include "string.h"
