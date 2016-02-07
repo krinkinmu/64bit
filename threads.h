@@ -47,11 +47,6 @@ static inline pid_t thread_pid(const struct thread *thread)
 { return thread->pid; }
 
 pid_t create_kthread(int (*fptr)(void *), void *arg);
-pid_t fork(void);
-void activate_thread(struct thread *thread);
-int wait_thread(pid_t pid);
-void exit_thread(void);
-
 
 struct thread_regs;
 
@@ -62,6 +57,15 @@ void put_thread(struct thread *thread);
 void get_thread(struct thread *thread);
 void schedule(void);
 bool need_resched(void);
+
+
+static inline pid_t getpid(void)
+{ return thread_pid(current()); }
+
+void activate_thread(struct thread *thread);
+pid_t fork(void);
+int wait(pid_t pid);
+void exit(void);
 
 
 void idle(void);

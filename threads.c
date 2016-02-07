@@ -253,13 +253,13 @@ static pid_t __create_thread(int (*fptr)(void *), void *arg)
 
 	/*
 	 * after thread_entry finished we stil have thread_regs on the stack,
-	 * initialize it to iret to exit_thread. Thread function can overwrite
-	 * it to jump in userspace.
+	 * initialize it to iret to exit. Thread function can overwrite it to
+	 * jump in userspace.
 	 */
 	frame->regs.ss = (uint64_t)KERNEL_DS;
 	frame->regs.cs = (uint64_t)KERNEL_CS;
 	frame->regs.rsp = (uint64_t)(thread_stack_end(thread));
-	frame->regs.rip = (uint64_t)&exit_thread; // finish thread on exit
+	frame->regs.rip = (uint64_t)&exit; // finish thread on exit
 
 	thread->stack_pointer = frame;
 	register_thread(thread);
@@ -372,7 +372,7 @@ static int reap_thread(struct thread *thread)
 	return 1;
 }
 
-int wait_thread(pid_t pid)
+int wait(pid_t pid)
 {
 	struct thread *thread = lookup_thread(pid);
 
@@ -401,7 +401,7 @@ void activate_thread(struct thread *thread)
 	spin_unlock_irqrestore(&thread->lock, locked);
 }
 
-void exit_thread(void)
+void exit(void)
 {
 	local_preempt_disable();
 	current_thread->state = THREAD_FINISHED;

@@ -28,7 +28,7 @@ static void test_threading(void)
 		const pid_t pid = create_kthread(&test_function, 0);
 
 		DBG_ASSERT(pid >= 0);
-		wait_thread(pid);
+		wait(pid);
 	}
 	DBG_INFO("finish threading test");
 }
