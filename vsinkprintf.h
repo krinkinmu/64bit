@@ -5,7 +5,7 @@
 #include <stdarg.h>
 
 struct vsinkprintf_sink {
-	void (*write)(struct vsinkprintf_sink *sink, const char *, size_t size);
+	void (*write)(struct vsinkprintf_sink *, const char *, size_t);
 };
 
 void vsinkprintf(struct vsinkprintf_sink *sink,
