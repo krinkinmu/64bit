@@ -147,7 +147,7 @@ struct vma_iter {
 	struct vma *vma;
 };
 
-static int lookup_vma(struct mm *mm, virt_t begin, virt_t end,
+static int __lookup_vma(struct mm *mm, virt_t begin, virt_t end,
 			struct vma_iter *iter)
 {
 	struct rb_node **plink = &mm->vma.root;
@@ -176,6 +176,15 @@ static int lookup_vma(struct mm *mm, virt_t begin, virt_t end,
 	return 0;
 }
 
+struct vma *lookup_vma(struct mm *mm, virt_t addr)
+{
+	struct vma_iter iter;
+
+	addr &= ~((virt_t)PAGE_MASK);
+	__lookup_vma(mm, addr, addr + 1, &iter);
+	return iter.vma;
+}
+
 int mm_page_fault(struct thread *thread, virt_t vaddr, int access)
 {
 	struct mm *mm = thread->mm;
@@ -188,10 +197,10 @@ int mm_page_fault(struct thread *thread, virt_t vaddr, int access)
 	struct vma_iter iter;
 
 	/*
-	 * lookup_vma won't work with empty regions, so +1.
+	 * __lookup_vma won't work with empty regions, so +1.
 	 * Seems like a dirty hack.
 	 */
-	if (!lookup_vma(mm, vaddr, vaddr + 1, &iter))
+	if (!__lookup_vma(mm, vaddr, vaddr + 1, &iter))
 		return -EINVAL;
 
 	return iter.vma->fault(mm, iter.vma, vaddr, access);
@@ -201,7 +210,7 @@ static void insert_vma(struct mm *mm, struct vma *vma)
 {
 	struct vma_iter iter;
 
-	lookup_vma(mm, vma->begin, vma->end, &iter);
+	__lookup_vma(mm, vma->begin, vma->end, &iter);
 	rb_link(&vma->link, iter.parent, iter.plink);
 	rb_insert(&vma->link, &mm->vma);	
 }
@@ -213,7 +222,7 @@ int __mmap(struct mm *mm, virt_t begin, virt_t end, int perm)
 	begin = ALIGN_DOWN_CONST(begin, PAGE_SIZE);
 	end = ALIGN_CONST(end, PAGE_SIZE);
 
-	if (lookup_vma(mm, begin, end, &iter))
+	if (__lookup_vma(mm, begin, end, &iter))
 		return -EBUSY;
 
 	int rc = pt_populate_range(page_addr(mm->pt), begin, end);
@@ -252,7 +261,7 @@ void __munmap(struct mm *mm, virt_t begin, virt_t end)
 	__munmap_pages(mm, begin, (end - begin) >> PAGE_BITS);
 	pt_release_range(page_addr(mm->pt), begin, end);
 
-	while (lookup_vma(mm, begin, end, &iter)) {
+	while (__lookup_vma(mm, begin, end, &iter)) {
 		struct vma *vma = iter.vma;
 
 		if (vma->begin >= begin) {

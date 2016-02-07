@@ -29,6 +29,7 @@ struct vma {
 struct mm {
 	struct rb_tree vma;
 	struct page *pt;
+	struct vma *stack;
 };
 
 
@@ -45,6 +46,7 @@ int __mmap(struct mm *mm, virt_t begin, virt_t end, int perm);
 void __munmap(struct mm *mm, virt_t begin, virt_t end);
 void __mmap_pages(struct mm *mm, virt_t addr, struct page **pages, pfn_t count,
 			unsigned long flags);
+struct vma *lookup_vma(struct mm *mm, virt_t addr);
 void __munmap_pages(struct mm *mm, virt_t addr, pfn_t count);
 int mmap(virt_t begin, virt_t end, int perm);
 void munmap(virt_t begin, virt_t end);
