@@ -81,18 +81,15 @@ no_syscall:
 	movq $-ENOSYS, %rax
 	jmp exit_syscall
 
-	.global __kernel_thread_entry
-	.extern kernel_thread_entry
-__kernel_thread_entry:
-	RESTORE_VOLATILE // preserved across function call
-	RESTORE_NONVOLATILE // initializes function call arguments
+	.global __thread_entry
+	.extern thread_entry
+__thread_entry:
+	movq %r15, %rdi
+	movq %r14, %rsi
+	movq %r13, %rdx
 
 	cld
-	call kernel_thread_entry
-
-	RESTORE_NONVOLATILE
-	addq $136, %rsp
-	iretq // jump to user space or exit
+	call thread_entry
 
 	.global __jump_to_userspace
 __jump_to_userspace:

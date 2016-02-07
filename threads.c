@@ -127,12 +127,12 @@ static void place_thread(struct thread *thread)
 	thread->time = jiffies();
 }
 
-int kernel_thread_entry(struct thread *thread, int (*fptr)(void *),
-			void *data)
+int thread_entry(struct thread *thread, int (*fptr)(void *),
+			void *arg)
 {
 	place_thread(thread);
 	local_preempt_enable();
-	return fptr(data);
+	return fptr(arg);
 }
 
 static int __lookup_thread(struct thread_iter *iter, pid_t pid)
@@ -230,10 +230,10 @@ static struct thread *alloc_thread(void)
 	return thread;
 }
 
-static pid_t __create_kthread(int (*fptr)(void *), void *arg)
+static pid_t __create_thread(int (*fptr)(void *), void *arg)
 {
 	const size_t frame_size = sizeof(struct thread_start_frame);
-	extern void __kernel_thread_entry(void);
+	extern void __thread_entry(void);
 
 	struct thread *thread = alloc_thread();
 
@@ -244,17 +244,17 @@ static pid_t __create_kthread(int (*fptr)(void *), void *arg)
 		(void *)((char *)thread_stack_end(thread) - frame_size);
 
 	/* all kernel threads start in kernel_thread_entry */
-	frame->frame.entry = (uint64_t)&__kernel_thread_entry;
+	frame->frame.entry = (uint64_t)&__thread_entry;
 
 	/* kernel_thread_entry arguments */
-	frame->regs.rdi = (uint64_t)thread;
-	frame->regs.rsi = (uint64_t)fptr;
-	frame->regs.rdx = (uint64_t)arg;
+	frame->frame.r15 = (uint64_t)thread;
+	frame->frame.r14 = (uint64_t)fptr;
+	frame->frame.r13 = (uint64_t)arg;
 
 	/*
-	 * after kernel_thread_entry finished we stil have thread_regs on
-	 * the stack, initialize it to iret to exit_thread. Thread function
-	 * can overwrite it to jump in userspace.
+	 * after thread_entry finished we stil have thread_regs on the stack,
+	 * initialize it to iret to exit_thread. Thread function can overwrite
+	 * it to jump in userspace.
 	 */
 	frame->regs.ss = (uint64_t)KERNEL_DS;
 	frame->regs.cs = (uint64_t)KERNEL_CS;
@@ -269,7 +269,7 @@ static pid_t __create_kthread(int (*fptr)(void *), void *arg)
 
 pid_t create_kthread(int (*fptr)(void *), void *arg)
 {
-	const pid_t pid = __create_kthread(fptr, arg);
+	const pid_t pid = __create_thread(fptr, arg);
 
 	if (pid < 0)
 		return pid;
@@ -287,6 +287,7 @@ static pid_t __fork(void)
 {
 	const size_t frame_size = sizeof(struct thread_start_frame);
 	extern void __jump_to_userspace(void);
+	extern void __thread_entry(void);
 
 	struct thread *thread = alloc_thread();
 
@@ -304,8 +305,12 @@ static pid_t __fork(void)
 		(void *)((char *)thread_stack_end(thread) - frame_size);
 
 	frame->regs = *thread_regs(current());
+
+	frame->frame.entry = (uint64_t)&__thread_entry;
+	frame->frame.r15 = (uint64_t)thread;
+	frame->frame.r14 = (uint64_t)&__jump_to_userspace;
+	frame->frame.r13 = 0;
 	frame->regs.rax = 0; // syscall return value for child process
-	frame->frame.entry = (uint64_t)&__jump_to_userspace;
 
 	thread->stack_pointer = frame;
 	register_thread(thread);
