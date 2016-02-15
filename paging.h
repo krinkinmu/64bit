@@ -118,18 +118,8 @@ static inline phys_t load_pml4(void)
 static inline void flush_tlb_addr(virt_t vaddr)
 { __asm__ volatile ("invlpg (%0)" : : "r"(vaddr) : "memory"); }
 
-
-#include "list.h"
-
-struct pages {
-	struct list_head head;
-	size_t count;
-};
-
-//size_t gather_pages(pte_t *pt, virt_t virt, pfn_t pages, struct pages *set);
-//int map_range(pte_t *pt, virt_t virt, phys_t phys, pfn_t pages,
-//			unsigned long flags);
-//int unmap_range(pte_t *pt, virt_t virt, pfn_t pages);
+void *kmap(struct page **pages, size_t count);
+void kunmap(void *ptr);
 
 
 void setup_paging(void);

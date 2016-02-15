@@ -513,7 +513,7 @@ void *kmap(struct page **pages, size_t count)
 		const int level = iter.level;
 		const int idx = iter.idx[level];
 
-		iter.pt[level][idx] = paddr | PTE_WRITE;
+		iter.pt[level][idx] = paddr | PTE_WRITE | PTE_PRESENT;
 		flush_tlb_addr(iter.addr);
 	}
 
@@ -535,7 +535,7 @@ void kunmap(void *vaddr)
 		const int level = iter.level;
 		const int idx = iter.idx[level];
 
-		iter.pt[idx] = 0;
+		iter.pt[level][idx] = 0;
 		flush_tlb_addr(virt);
 		virt += PAGE_SIZE;
 	}
