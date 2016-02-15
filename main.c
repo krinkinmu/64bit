@@ -36,8 +36,9 @@ static void test_threading(void)
 static void test_exec(void)
 {
 	static const char test[] = "/initramfs/test";
+	const char *argv[] = { test, 0 };
 
-	const int rc = exec(test);
+	const int rc = exec(1, argv);
 
 	if (rc)
 		DBG_ERR("exec failed with error %s", errstr(rc));

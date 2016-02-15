@@ -30,6 +30,9 @@ struct mm {
 	struct rb_tree vma;
 	struct page *pt;
 	struct vma *stack;
+	uintptr_t stack_pointer;
+	uintptr_t argv_addr;
+	int argc;
 };
 
 

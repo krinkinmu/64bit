@@ -1,4 +1,5 @@
 #include "thread_regs.h"
+#include "kmem_cache.h"
 #include "threads.h"
 #include "kernel.h"
 #include "paging.h"
@@ -164,6 +165,7 @@ static int map_elf_phdr(struct mm *mm, const struct elf_phdr *phdr,
 			return rc;
 		}
 
+		page->u.refcount = 0;
 		__mmap_pages(mm, addr, &page, 1, flags | PTE_USER);
 
 		addr += PAGE_SIZE;
@@ -217,11 +219,85 @@ static int setup_stack(struct mm *mm, size_t size)
 	return 0;
 }
 
-int exec(const char *name)
+static int copy_args(struct mm *mm, int argc, const char **argv)
 {
+	const size_t ptrsz = sizeof(char *);
+
+	struct vma *stack = mm->stack;
+	size_t bytes = 0;
+
+	for (int i = 0; i != argc; ++i)
+		bytes += strlen(argv[i]) + 1;
+
+	bytes = ALIGN(bytes, ALIGN_OF(void *)); // force alignment
+
+	const size_t size = ALIGN(bytes + ptrsz * (argc + 1), PAGE_SIZE);
+	const size_t count = size / PAGE_SIZE;
+	struct page **pages = kmem_alloc(count * sizeof(struct page *));
+
+	if (!pages)
+		return -ENOMEM;
+
+	memset(pages, 0, sizeof(*pages) * count);
+
+	int rc = -ENOMEM;
+	for (size_t i = 0; i != count; ++i) {
+		pages[i] = alloc_pages(0);
+		if (!pages[i])
+			goto out;
+		pages[i]->u.refcount = 0;
+	}
+
+	void *buffer = kmap(pages, count);
+
+	if (!buffer)
+		goto out;
+
+	char *data = (char *)buffer + (size - bytes);
+	uintptr_t usrdata = stack->end - bytes;
+	uintptr_t *array = (uintptr_t *)(data - (argc + 1) * ptrsz);
+	uintptr_t usrarray = usrdata - (argc + 1) * ptrsz;
+
+	memset(buffer, 0, size);
+
+	for (int i = 0; i != argc; ++i) {
+		const size_t len = strlen(argv[i]) + 1;
+
+		array[i] = usrdata;
+		usrdata += len;
+		memcpy(data, argv[i], len);
+		data += len;
+	}
+
+	__mmap_pages(mm, stack->end - size, pages, count,
+				PTE_WRITE | PTE_USER);
+
+	mm->stack_pointer = usrarray;
+	mm->argv_addr = usrarray;
+	mm->argc = argc;
+
+	kunmap(buffer);
+	kmem_free(pages);
+
+	return 0;	
+
+out:
+	for (size_t i = 0; i != count; ++i)
+		if (pages[i])
+			free_pages(pages[i], 0);
+
+	kmem_free(pages);
+	return rc;
+}
+
+int exec(int argc, const char **argv)
+{
+	if (argc <= 0)
+		return -EINVAL;
+
 	struct fs_file file;
 
-	int rc = vfs_open(name, &file);
+	int rc = vfs_open(argv[0], &file);
 
 	if (rc)
 		return -EIO;
@@ -254,6 +330,13 @@ int exec(const char *name)
 		return rc;
 	}
 
+	rc = copy_args(new_mm, argc, argv);
+	if (rc) {
+		release_mm(new_mm);
+		vfs_release(&file);
+		return rc;
+	}
+
 	rc = load_binary(new_mm, &hdr, &file);
 	if (rc) {
 		release_mm(new_mm);
@@ -272,7 +355,9 @@ int exec(const char *name)
 
 	memset(regs, 0, sizeof(*regs));
 	regs->rip = hdr.e_entry;
-	regs->rsp = new_mm->stack->end;
+	regs->rsp = new_mm->stack_pointer;
+	regs->rdi = new_mm->argc;
+	regs->rsi = new_mm->argv_addr;
 	regs->cs = USER_CS;
 	regs->ss = USER_DS;
 	regs->rflags = RFLAGS_IF;

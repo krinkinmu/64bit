@@ -49,9 +49,12 @@ static void printf(const char *fmt, ...)
 }
 
 
-void main(void)
+void main(int argc, char **argv)
 {
 	printf("Userspace process pid %ld\n", getpid());
+	printf("argc = %d, argv = %p\n", argc, argv);
+	for (int i = 0; i != argc; ++i)
+		printf("argv[%d] = %s\n", i, argv[i]);
 
 	const long pid = fork();
 
