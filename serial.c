@@ -36,7 +36,6 @@ void setup_serial(void)
 	out8(REG_DLL, 0x0C);
 	out8(REG_DLH, 0x00);
 	out8(REG_LCR, LCR_8BIT);
-	out8(REG_FCR, FCR_EFIFO | FCR_14BYTES);
 
 	static struct console serial_console = {
 		.write = &serial_write
