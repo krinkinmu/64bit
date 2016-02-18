@@ -93,13 +93,21 @@ static size_t thread_stack_size(void)
 	return 1ul << (KERNEL_STACK_ORDER + PAGE_BITS);
 }
 
-static void *thread_stack_begin(struct thread *thread)
+void *thread_stack_begin(struct thread *thread)
 {
+	extern char init_stack_bottom[];
+
+	if (thread == &bootstrap)
+		return init_stack_bottom;
 	return page_addr(thread->stack);
 }
 
-static void *thread_stack_end(struct thread *thread)
+void *thread_stack_end(struct thread *thread)
 {
+	extern char init_stack_top[];
+
+	if (thread == &bootstrap)
+		return init_stack_top;
 	return (char *)thread_stack_begin(thread) + thread_stack_size();
 }
 

@@ -247,7 +247,8 @@ start64:
 	jmp 1b
 
 	.bss
-	.global init_stack_top
+	.global init_stack_top, init_stack_bottom
+init_stack_bottom:
 	.align 0x1000
 	.space 0x2000
 init_stack_top:

@@ -53,6 +53,8 @@ struct thread_regs;
 struct thread_regs *thread_regs(struct thread *thread);
 struct thread *lookup_thread(pid_t pid);
 struct thread *current(void);
+void *thread_stack_begin(struct thread *thread);
+void *thread_stack_end(struct thread *thread);
 void put_thread(struct thread *thread);
 void get_thread(struct thread *thread);
 void schedule(void);
