@@ -1,5 +1,6 @@
 #include "thread_regs.h"
 #include "interrupt.h"
+#include "backtrace.h"
 #include "threads.h"
 #include "irqchip.h"
 #include "memory.h"
@@ -94,7 +95,21 @@ static void dump_error_frame(const struct thread_regs *frame)
 				frame->r13, frame->r14, frame->r15);
 }
 
-static void default_exception_handler(struct thread_regs *frame)
+static void dump_backtrace(const struct thread_regs *frame)
+{
+	struct thread *thread = current();
+
+	if (!thread)
+		return;
+
+	const uintptr_t stack_begin = (uintptr_t)thread_stack_begin(thread);
+	const uintptr_t stack_end = (uintptr_t)thread_stack_end(thread);
+
+	puts("Backtrace:");
+	backtrace(frame->rbp, stack_begin, stack_end);
+}
+
+static void default_exception_handler(const struct thread_regs *frame)
 {
 	static const char *error[] = {
 		"division error",
@@ -132,6 +147,7 @@ static void default_exception_handler(struct thread_regs *frame)
 
 	puts(error[frame->intno]);
 	dump_error_frame(frame);
+	dump_backtrace(frame);
 	while (1);
 }
 
