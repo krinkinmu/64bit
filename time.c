@@ -50,7 +50,7 @@ static void i8254_set_frequency(unsigned long freq)
 
 	out8(I8254_CTRL_PORT, cmd);
 	out8(I8254_CH0_DATA_PORT, divisor & BITS(7, 0));
-	out8(I8254_CH0_DATA_PORT, divisor & BITS(15, 8));
+	out8(I8254_CH0_DATA_PORT, (divisor & BITS(15, 8)) >> 8);
 }
 
 static void i8254_interrupt_handler(int irq)
