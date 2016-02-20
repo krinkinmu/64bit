@@ -22,8 +22,8 @@
 #define I8254_FREQUENCY     1193180ul
 #define I8254_IRQ           0
 
-#define I8254_CTRL_RW0      5
-#define I8254_CTRL_RW1      6
+#define I8254_CTRL_RW0      4
+#define I8254_CTRL_RW1      5
 #define I8254_CTRL_M0       1
 #define I8254_CTRL_M1       2
 #define I8254_CTRL_M2       3
