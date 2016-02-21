@@ -157,10 +157,10 @@ void setup_memory(void)
 			entry->type);
 	}
 
-	extern char text_virt_begin[];
-	extern char bss_virt_end[];
-	const phys_t kernel_begin = (phys_t)kernel_phys(text_virt_begin);
-	const phys_t kernel_end = (phys_t)kernel_phys(bss_virt_end);
+	extern char text_phys_begin[];
+	extern char bss_phys_end[];
+	const phys_t kernel_begin = (phys_t)text_phys_begin;
+	const phys_t kernel_end = (phys_t)bss_phys_end;
 
 	balloc_add_region(kernel_begin, kernel_end - kernel_begin);
 	balloc_add_region(initrd_begin, initrd_end - initrd_begin);
