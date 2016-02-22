@@ -48,6 +48,11 @@ static void printf(const char *fmt, ...)
 	va_end(args);
 }
 
+static void puts(const char *str)
+{
+	write(str, strlen(str));
+	write("\n", 1);
+}
 
 void main(int argc, char **argv)
 {
@@ -58,12 +63,18 @@ void main(int argc, char **argv)
 
 	const long pid = fork();
 
-	if (pid == 0)
+	if (pid == 0) {
 		printf("Child process %ld started\n", getpid());
-	else if (pid > 0)
+		printf("Finishing child process %ld\n", getpid());
+		exit();
+		puts("EPIC FAIL: exit returned");
+	} else if (pid > 0) {
 		printf("Forked child process %ld\n", pid);
-	else
+		printf("Waiting child process %ld\n", pid);
+		printf("Wait returned %ld\n", wait(pid));
+	} else {
 		printf("Fork failed with error %ld\n", pid);
+	}
 
 	while (1);
 }
