@@ -2,14 +2,20 @@
 #define __RAMFS_H__
 
 #include "rbtree.h"
-#include "list.h"
 #include "vfs.h"
 
+#include <stddef.h>
+
+struct ramfs_page {
+	struct rb_node link;
+	struct page *page;
+	size_t index;
+};
 
 struct ramfs_node {
 	struct fs_node vfs_node;
 	struct rb_tree children;
-	struct list_head pages;
+	struct rb_tree pages;
 };
 
 struct ramfs_entry {

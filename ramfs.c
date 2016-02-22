@@ -12,6 +12,7 @@
 
 static struct kmem_cache *ramfs_node_cache;
 static struct kmem_cache *ramfs_entry_cache;
+static struct kmem_cache *ramfs_page_cache;
 
 static struct fs_node_ops ramfs_file_node_ops;
 static struct fs_file_ops ramfs_file_ops;
@@ -40,7 +41,6 @@ static struct ramfs_node *ramfs_node_create(struct fs_node_ops *ops,
 	if (node) {
 		memset(node, 0, sizeof(*node));
 		vfs_node_init(VFS_NODE(node));
-		list_init(&node->pages);
 		vfs_node_get(VFS_NODE(node));
 		VFS_NODE(node)->ops = ops;
 		VFS_NODE(node)->fops = fops;
@@ -232,18 +232,49 @@ static int ramfs_lookup(struct fs_node *dir, struct fs_entry *entry)
 	return 0;	
 }
 
+static struct ramfs_page *ramfs_alloc_page(size_t index)
+{
+	struct ramfs_page *rpage = kmem_cache_alloc(ramfs_page_cache);
+
+	if (!rpage)
+		return 0;
+
+	rpage->page = alloc_pages(0);
+
+	if (!rpage->page) {
+		kmem_cache_free(ramfs_page_cache, rpage);
+		return 0;
+	}
+
+	memset(page_addr(rpage->page), 0, PAGE_SIZE);
+	rpage->index = index;
+	return rpage;
+}
+
+static void ramfs_free_page(struct ramfs_page *page)
+{
+	free_pages(page->page, 0);
+	kmem_cache_free(ramfs_page_cache, page);
+}
+
+static void __ramfs_release_file_node(struct rb_node *node)
+{
+	while (node) {
+		struct ramfs_page *page = TREE_ENTRY(node, struct ramfs_page,
+					link);
+
+		__ramfs_release_file_node(node->right);
+		node = node->left;
+		ramfs_free_page(page);
+	}
+}
+
 static void ramfs_release_file_node(struct fs_node *node)
 {
-	struct list_head *head = &RAMFS_NODE(node)->pages;
-	struct list_head *ptr = head->next;
+	struct ramfs_node *rnode = RAMFS_NODE(node);
 
-	while (ptr != head) {
-		struct page *page = LIST_ENTRY(ptr, struct page, link);
-
-		ptr = ptr->next;
-		free_pages(page, 0);
-	}
-	kmem_cache_free(ramfs_node_cache, node);
+	__ramfs_release_file_node(rnode->pages.root);
+	kmem_cache_free(ramfs_node_cache, rnode);
 }
 
 static void ramfs_dir_release(struct rb_node *node)
@@ -280,6 +311,42 @@ static struct fs_node_ops ramfs_dir_node_ops = {
 	.release = ramfs_release_dir_node
 };
 
+struct ramfs_page_iter {
+	struct ramfs_page *page;
+	struct rb_node *parent;
+	struct rb_node **plink;
+};
+
+static int ramfs_lookup_page(struct ramfs_node *node,
+			struct ramfs_page_iter *iter, size_t index)
+{
+	struct rb_node **plink = &node->pages.root;
+	struct rb_node *parent = 0;
+
+	while (*plink) {
+		struct ramfs_page *page = TREE_ENTRY(*plink, struct ramfs_page,
+					link);
+
+		if (page->index == index) {
+			iter->plink = plink;
+			iter->parent = parent;
+			iter->page = page;
+			return 1;
+		}
+
+		parent = *plink;
+		if (page->index < index)
+			plink = &parent->right;
+		else
+			plink = &parent->left;
+	}
+
+	iter->plink = plink;
+	iter->parent = parent;
+	iter->page = 0;
+	return 0;
+}
+
 static int ramfs_write(struct fs_file *file, const char *data, size_t size)
 {
 	struct fs_node *fs_node = file->node;
@@ -287,33 +354,28 @@ static int ramfs_write(struct fs_file *file, const char *data, size_t size)
 
 	mutex_lock(&fs_node->mux);
 
-	struct list_head *head = &node->pages;
-	struct list_head *ptr = head;
 	const size_t idx = file->offset >> PAGE_BITS;
 	const size_t off = file->offset & PAGE_MASK;
 	const size_t sz = MINU(PAGE_SIZE - off, size);
 
-	for (size_t i = 0; i <= idx; ++i) {
-		if (ptr->next == head) {
-			struct page *page = alloc_pages(0);
+	struct ramfs_page_iter iter;
+	struct ramfs_page *rpage;
 
-			if (!page) {
-				mutex_unlock(&fs_node->mux);
-				return -ENOMEM;
-			}
-
-			list_add(&page->link, ptr);
+	if (ramfs_lookup_page(node, &iter, idx)) {
+		rpage = iter.page;
+	} else {
+		rpage = ramfs_alloc_page(idx);
+		if (!rpage) {
+			mutex_unlock(&fs_node->mux);
+			return -ENOMEM;
 		}
-		ptr = ptr->next;
+
+		rb_link(&rpage->link, iter.parent, iter.plink);
+		rb_insert(&rpage->link, &node->pages);
 	}
 
-	struct page *page = LIST_ENTRY(ptr, struct page, link);
+	struct page *page = rpage->page;
 	char *vaddr = page_addr(page);
-
-	if (!vaddr) {
-		mutex_unlock(&fs_node->mux);
-		return -ENOMEM;
-	}
 
 	memcpy(vaddr + off, data, sz);
 	file->offset += sz;
@@ -329,10 +391,6 @@ static int ramfs_read(struct fs_file *file, char *data, size_t size)
 	struct ramfs_node *node = RAMFS_NODE(fs_node);
 
 	mutex_lock(&fs_node->mux);
-
-	struct list_head *head = &node->pages;
-	struct list_head *ptr = head;
-
 	if (file->offset >= file->node->size) {
 		mutex_unlock(&fs_node->mux);
 		return 0;
@@ -343,23 +401,17 @@ static int ramfs_read(struct fs_file *file, char *data, size_t size)
 	const size_t off = file->offset & PAGE_MASK;
 	const size_t sz = MINU(MINU(PAGE_SIZE - off, size), rem);
 
-	for (size_t i = 0; i <= idx; ++i) {
-		if (ptr->next == head) {
-			mutex_unlock(&fs_node->mux);
-			return 0;
-		}
-		ptr = ptr->next;
+	struct ramfs_page_iter iter;
+
+	if (ramfs_lookup_page(node, &iter, idx)) {
+		struct page *page = iter.page->page;
+		char *vaddr = page_addr(page);
+
+		memcpy(data, vaddr + off, sz);
+	} else {
+		memset(data, 0, sz);
 	}
 
-	struct page *page = LIST_ENTRY(ptr, struct page, link);
-	char *vaddr = page_addr(page);
-
-	if (!vaddr) {
-		mutex_unlock(&fs_node->mux);
-		return -ENOMEM;
-	}
-
-	memcpy(data, vaddr + off, sz);
 	file->offset += sz;
 	mutex_unlock(&fs_node->mux);
 
@@ -432,6 +484,7 @@ void setup_ramfs(void)
 {
 	DBG_ASSERT((ramfs_node_cache = KMEM_CACHE(struct ramfs_node)) != 0);
 	DBG_ASSERT((ramfs_entry_cache = KMEM_CACHE(struct ramfs_entry)) != 0);
+	DBG_ASSERT((ramfs_page_cache = KMEM_CACHE(struct ramfs_page)) != 0);
 	DBG_ASSERT(register_filesystem(&ramfs_type) == 0);
 
 #ifdef CONFIG_RAMFS_TEST
