@@ -106,7 +106,7 @@ static void dump_backtrace(const struct thread_regs *frame)
 	const uintptr_t stack_end = (uintptr_t)thread_stack_end(thread);
 
 	puts("Backtrace:");
-	backtrace(frame->rbp, stack_begin, stack_end);
+	__backtrace(frame->rbp, stack_begin, stack_end);
 }
 
 static void default_exception_handler(const struct thread_regs *frame)

@@ -12,6 +12,7 @@ int snprintf(char *buf, size_t size, const char *fmt, ...);
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list args);
 
 /* TODO: move it somewhere else? */
+#include "backtrace.h"
 #include "kernel.h"
 
 #ifndef CONFIG_MIN_DEBUG_LEVEL
@@ -45,6 +46,7 @@ void dbg_printf(const char *pref, const char *file, int line,
 	do {							\
 		if (!(cond)) {					\
 			DBG_ERR("Condition %s failed", #cond);	\
+			backtrace();				\
 			while (1);				\
 		}						\
 	} while (0)
