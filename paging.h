@@ -10,10 +10,15 @@
 
 typedef uint64_t pte_t;
 
-#define PTE_PRESENT ((pte_t)BIT_CONST(0))
-#define PTE_WRITE   ((pte_t)BIT_CONST(1))
-#define PTE_USER    ((pte_t)BIT_CONST(2))
-#define PTE_LARGE   ((pte_t)BIT_CONST(7))
+#define PTE_PRESENT  ((pte_t)BIT_CONST(0))
+#define PTE_WRITE    ((pte_t)BIT_CONST(1))
+#define PTE_USER     ((pte_t)BIT_CONST(2))
+#define PTE_LARGE    ((pte_t)BIT_CONST(7))
+#define PTE_LOW      ((pte_t)BIT_CONST(9))
+#define PTE_FLAGS    (PTE_PRESENT | PTE_WRITE | PTE_USER | PTE_LARGE | PTE_LOW)
+
+#define PTE_PT_FLAGS       (PTE_WRITE | PTE_USER)
+#define PTE_LARGE_PT_FLAGS (PTE_PT_FLAGS | PTE_LARGE)
 
 #define PT_SIZE     (PAGE_SIZE / sizeof(pte_t))
 #define PML1_PAGES  ((pfn_t)PT_SIZE)
@@ -79,9 +84,17 @@ bool pt_iter_large(const struct pt_iter *iter);
 		__FE_iter_p && __FE_iter_p->addr < to; \
 		__FE_iter_p = pt_iter_next(__FE_iter_p))
 
-int pt_populate_range(pte_t *pml4, virt_t from, virt_t to);
-int pt_populate_range_large(pte_t *pml4, virt_t from, virt_t to);
-void pt_release_range(pte_t *pml4, virt_t from, virt_t to);
+int __pt_populate_range(pte_t *pml4, virt_t from, virt_t to, pte_t flags);
+void __pt_release_range(pte_t *pml4, virt_t from, virt_t to);
+
+static inline int pt_populate_range(pte_t *pml4, virt_t from, virt_t to)
+{ return __pt_populate_range(pml4, from, to, PTE_PT_FLAGS); }
+
+static inline int pt_populate_range_large(pte_t *pml4, virt_t from, virt_t to)
+{ return __pt_populate_range(pml4, from, to, PTE_LARGE_PT_FLAGS); }
+
+static inline void pt_release_range(pte_t *pml4, virt_t from, virt_t to)
+{ __pt_release_range(pml4, from, to); }
 
 static inline void get_page(struct page *page)
 { ++page->u.refcount; }

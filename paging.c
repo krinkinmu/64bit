@@ -4,8 +4,6 @@
 #include "stdio.h"
 
 
-#define PT_FLAGS (PTE_PRESENT | PTE_WRITE | PTE_USER)
-
 static int pt_index(virt_t vaddr, int level)
 {
 	switch (level) {
@@ -114,9 +112,10 @@ bool pt_iter_large(const struct pt_iter *iter)
 	return pte_large(iter->pt[level][index]);
 }
 
-static struct page *alloc_page_table(void)
+static struct page *alloc_page_table(pte_t flags)
 {
-	struct page *page = __alloc_pages(0, NT_LOW);
+	struct page *page =
+		(flags & PTE_LOW) ? __alloc_pages(0, NT_LOW) : alloc_pages(0);
 
 	if (page) {
 		memset(va(page_paddr(page)), 0, PAGE_SIZE);
@@ -155,7 +154,7 @@ static void pt_release_pml2(pte_t *pml2, virt_t from, virt_t to)
 	}
 }
 
-static int pt_populate_pml2(pte_t *pml2, virt_t from, virt_t to, bool large)
+static int pt_populate_pml2(pte_t *pml2, virt_t from, virt_t to, pte_t flags)
 {
 	virt_t vaddr = from;
 
@@ -164,8 +163,8 @@ static int pt_populate_pml2(pte_t *pml2, virt_t from, virt_t to, bool large)
 			MINU(PML1_SIZE - (vaddr & PML1_MASK), to - vaddr);
 		const pfn_t pages = bytes >> PAGE_BITS;
 
-		if (!pte_present(pml2[i]) && !large) {
-			struct page *pt = alloc_page_table();
+		if (!pte_present(pml2[i]) && !pte_large(flags)) {
+			struct page *pt = alloc_page_table(flags);
 
 			if (!pt) {
 				pt_release_pml2(pml2, from, vaddr);
@@ -173,7 +172,7 @@ static int pt_populate_pml2(pte_t *pml2, virt_t from, virt_t to, bool large)
 			}
 
 			pt->u.refcount += pages;
-			pml2[i] = page_paddr(pt) | PT_FLAGS;
+			pml2[i] = page_paddr(pt) | flags;
 		} else if (pte_present(pml2[i]) && !pte_large(pml2[i])) {
 			const pfn_t pfn = pte_phys(pml2[i]) >> PAGE_BITS;
 			struct page *pt = pfn2page(pfn);
@@ -213,19 +212,19 @@ static void pt_release_pml3(pte_t *pml3, virt_t from, virt_t to)
 	}
 }
 
-static int pt_populate_pml3(pte_t *pml3, virt_t from, virt_t to, bool large)
+static int pt_populate_pml3(pte_t *pml3, virt_t from, virt_t to, pte_t flags)
 {
 	virt_t vaddr = from;
 
 	for (int i = pml3_i(from); vaddr != to; ++i) {
-		struct page *pt = 0;
-		phys_t paddr = 0;
+		struct page *pt;
+		phys_t paddr;
 		const virt_t bytes =
 			MINU(PML2_SIZE - (vaddr & PML2_MASK), to - vaddr);
 		const pfn_t pages = bytes >> PAGE_BITS;
 
 		if (!pte_present(pml3[i])) {
-			pt = alloc_page_table();
+			pt = alloc_page_table(flags);
 
 			if (!pt) {
 				pt_release_pml3(pml3, from, vaddr);
@@ -233,7 +232,7 @@ static int pt_populate_pml3(pte_t *pml3, virt_t from, virt_t to, bool large)
 			}
 
 			paddr = page_paddr(pt);
-			pml3[i] = paddr | PT_FLAGS;
+			pml3[i] = paddr | (flags & ~PTE_LARGE);
 		} else {
 			const pte_t pte = pml3[i];
 
@@ -243,7 +242,7 @@ static int pt_populate_pml3(pte_t *pml3, virt_t from, virt_t to, bool large)
 		pt->u.refcount += pages;
 
 		const int rc = pt_populate_pml2(va(paddr), vaddr, vaddr + bytes,
-					large);
+					flags);
 
 		if (rc) {
 			pt_release_pml3(pml3, from, vaddr);
@@ -289,19 +288,19 @@ static void pt_release_pml4(pte_t *pml4, virt_t from, virt_t to)
 	}
 }
 
-static int pt_populate_pml4(pte_t *pml4, virt_t from, virt_t to, bool large)
+static int pt_populate_pml4(pte_t *pml4, virt_t from, virt_t to, pte_t flags)
 {
 	virt_t vaddr = from;
 
 	for (int i = pml4_i(from); vaddr < to; ++i) {
-		struct page *pt = 0;
-		phys_t paddr = 0;
+		struct page *pt;
+		phys_t paddr;
 		const virt_t bytes =
 			MINU(PML3_SIZE - (vaddr & PML3_MASK), to - vaddr);
 		const pfn_t pages = bytes >> PAGE_BITS;
 
 		if (!pte_present(pml4[i])) {
-			pt = alloc_page_table();
+			pt = alloc_page_table(flags);
 
 			if (!pt) {
 				pt_release_pml4(pml4, from, vaddr);
@@ -309,7 +308,7 @@ static int pt_populate_pml4(pte_t *pml4, virt_t from, virt_t to, bool large)
 			}
 
 			paddr = page_paddr(pt);
-			pml4[i] = paddr | PT_FLAGS;
+			pml4[i] = paddr | (flags & ~PTE_LARGE);
 		} else {
 			const pte_t pte = pml4[i];
 
@@ -319,7 +318,7 @@ static int pt_populate_pml4(pte_t *pml4, virt_t from, virt_t to, bool large)
 		pt->u.refcount += pages;
 
 		const int rc = pt_populate_pml3(va(paddr), vaddr, vaddr + bytes,
-					large);
+					flags);
 
 		if (rc) {
 			pt_release_pml4(pml4, from, vaddr);
@@ -339,18 +338,19 @@ static int pt_populate_pml4(pte_t *pml4, virt_t from, virt_t to, bool large)
 	return 0;
 }
 
-static int __pt_populate_range(pte_t *pml4, virt_t from, virt_t to, bool large)
+int __pt_populate_range(pte_t *pml4, virt_t from, virt_t to, pte_t flags)
 {
 	DBG_ASSERT(linear(from) < linear(to));
+	DBG_ASSERT((flags & ~PTE_FLAGS) == 0);
 	DBG_ASSERT(pml4 != 0);
 
 	from = ALIGN_DOWN(linear(from), PAGE_SIZE);
 	to = ALIGN(linear(to), PAGE_SIZE);
 
-	return pt_populate_pml4(pml4, from, to, large);	
+	return pt_populate_pml4(pml4, from, to, flags | PTE_PRESENT);
 }
 
-static void __pt_release_range(pte_t *pml4, virt_t from, virt_t to)
+void __pt_release_range(pte_t *pml4, virt_t from, virt_t to)
 {
 	DBG_ASSERT(linear(from) < linear(to));
 	DBG_ASSERT(pml4 != 0);
@@ -361,24 +361,11 @@ static void __pt_release_range(pte_t *pml4, virt_t from, virt_t to)
 	pt_release_pml4(pml4, from, to);
 }
 
-int pt_populate_range(pte_t *pt, virt_t from, virt_t to)
+static int map_range_large(pte_t *pml4, virt_t from, virt_t to, phys_t phys,
+			pte_t flags)
 {
-	return __pt_populate_range(pt, from, to, false);
-}
-
-int pt_populate_range_large(pte_t *pt, virt_t from, virt_t to)
-{
-	return __pt_populate_range(pt, from, to, true);
-}
-
-void pt_release_range(pte_t *pt, virt_t from, virt_t to)
-{
-	__pt_release_range(pt, from, to);
-}
-
-static int map_range_large(pte_t *pml4, virt_t from, virt_t to, phys_t phys)
-{
-	const int rc = pt_populate_range_large(pml4, from, to);
+	const int rc = __pt_populate_range(pml4, from, to, flags | PTE_LARGE);
+	const pte_t page_flags = PTE_WRITE | PTE_PRESENT;
 
 	if (rc)
 		return rc;
@@ -394,10 +381,10 @@ static int map_range_large(pte_t *pml4, virt_t from, virt_t to, phys_t phys)
 		DBG_ASSERT(!pte_present(pt[index]));
 
 		if (level == 1) {
-			pt[index] = phys | PTE_WRITE | PTE_LARGE | PTE_PRESENT;
+			pt[index] = phys | page_flags | PTE_LARGE;
 			phys += PML1_SIZE;
 		} else {
-			pt[index] = phys | PTE_WRITE | PTE_PRESENT;
+			pt[index] = phys | page_flags;
 			phys += PAGE_SIZE;
 		}
 	}
@@ -549,26 +536,29 @@ static int setup_kmap_mapping(pte_t *pml4)
 
 	kmap_free_range(all_kmap_ranges, KMAP_PAGES);
 
-	return pt_populate_range(pml4, KMAP_BASE, KMAP_BASE + KMAP_SIZE);
+	return __pt_populate_range(pml4, KMAP_BASE, KMAP_BASE + KMAP_SIZE,
+				PTE_WRITE | PTE_LOW);
 }
 
 static int setup_fixed_mapping(pte_t *pml4)
 {
 	const virt_t bytes = max_pfns() << PAGE_BITS;
 
-	return map_range_large(pml4, HIGH_BASE, HIGH_BASE + bytes, 0);
+	return map_range_large(pml4, HIGH_BASE, HIGH_BASE + bytes, 0,
+				PTE_WRITE | PTE_LOW);
 }
 
 static int setup_kernel_mapping(pte_t *pml4)
 {
 	const virt_t bytes = KERNEL_SIZE;
 
-	return map_range_large(pml4, KERNEL_BASE, KERNEL_BASE + bytes, 0);
+	return map_range_large(pml4, KERNEL_BASE, KERNEL_BASE + bytes, 0,
+				PTE_WRITE | PTE_LOW);
 }
 
 void setup_paging(void)
 {
-	struct page *page = alloc_page_table();
+	struct page *page = alloc_page_table(PTE_LOW);
 
 	DBG_ASSERT(page != 0);
 
