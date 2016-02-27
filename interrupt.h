@@ -8,10 +8,10 @@
 typedef void (*irq_t)(int irq);
 
 inline static void local_irq_disable(void)
-{ __asm__ volatile ("cli"); }
+{ __asm__ volatile ("cli" : : : "cc"); }
 
 inline static void local_irq_enable(void)
-{ __asm__ volatile ("sti"); }
+{ __asm__ volatile ("sti" : : : "cc"); }
 
 inline static unsigned long local_save_flags(void)
 {
