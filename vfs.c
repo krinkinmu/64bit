@@ -343,10 +343,8 @@ static int vfs_file_open(const char *name, struct fs_file *file, bool create)
 	mutex_unlock(&dir->mux);
 	vfs_walk_stop(&wd);
 
-	if (rc) {
-		vfs_entry_put(entry);
+	if (rc)
 		return rc;
-	}
 
 	file->entry = entry;
 	file->node = entry->node;
