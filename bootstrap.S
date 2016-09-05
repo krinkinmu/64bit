@@ -28,15 +28,15 @@ mboot_header:
 
 	.align 4
 gdt:
-        .quad 0x0000000000000000
-        .quad 0x00cf9a000000ffff
-        .quad 0x00cf92000000ffff
-        .quad 0x00a09a0000000000
-        .quad 0x00a0920000000000
-        .quad 0x00a0fa0000000000
-        .quad 0x00a0f20000000000
-        .quad 0x0000000000000000 // reserve for TSS
-        .quad 0x0000000000000000
+	.quad 0x0000000000000000
+	.quad 0x00209b0000000000 // 64 bit ring0 code segment
+	.quad 0x0020930000000000 // 64 bit ring0 data segment
+	.quad 0x0020fb0000000000 // 64 bit ring3 code segment
+	.quad 0x0020f30000000000 // 64 bit ring3 data segment
+	.quad 0x0000000000000000 // reserve for TSS low
+	.quad 0x0000000000000000 // reserve for TSS high
+	.quad 0x00cf9b000000ffff // 32 bit ring0 code segment
+	.quad 0x00cf93000000ffff // 32 bit ring0 data segment
 gdt_ptr:
 	.word (gdt_ptr - gdt - 1)
 	.quad gdt
@@ -89,7 +89,7 @@ bootstrap_stack_top:
 	addl $4, %esp
 
 	lgdt gdt_ptr
-	ljmp $0x18, $start64
+	ljmp $0x08, $start64
 
 /**
  * Utlities:
@@ -227,7 +227,7 @@ enable_paging:
 	.code64
 start64:
 	lgdt gdt_ptr64
-	movw $0x20, %ax
+	movw $0x10, %ax
 	movw %ax, %ds
 	movw %ax, %es
 	movw %ax, %fs

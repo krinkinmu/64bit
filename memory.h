@@ -5,58 +5,59 @@
 #include "balloc.h"
 #include "list.h"
 
-#define BUDDY_ORDERS      12
-#define BUDDY_ORDER_BITS  8ul
+#define BUDDY_ORDERS		12
+#define BUDDY_ORDER_BITS	8ul
 
-#define PAGE_NODE_BITS    8ul
-#define PAGE_NODE_MASK    (BIT_CONST(PAGE_NODE_BITS) - 1)
+#define PAGE_NODE_BITS		8ul
+#define PAGE_NODE_MASK		(BIT_CONST(PAGE_NODE_BITS) - 1)
 
-#define PAGE_BUSY_BIT     PAGE_NODE_BITS
-#define PAGE_BUSY_MASK    BIT_CONST(PAGE_BUSY_BIT)
+#define PAGE_BUSY_BIT		PAGE_NODE_BITS
+#define PAGE_BUSY_MASK		BIT_CONST(PAGE_BUSY_BIT)
 
-#define PAGE_BITS         12
-#define PAGE_SIZE         BIT_CONST(PAGE_BITS)
-#define PAGE_MASK         (PAGE_SIZE - 1)
+#define PAGE_BITS		12
+#define PAGE_SIZE		BIT_CONST(PAGE_BITS)
+#define PAGE_MASK		(PAGE_SIZE - 1)
 
-#define PADDR_BITS        48
+#define PADDR_BITS		48
 
-#define KERNEL_BASE       0xffffffff80000000ul
-#define HIGH_BASE         0xffff800000000000ul
-#define PHYSICAL_BASE     0x0000000000000000ul
-#define MAX_PHYS_SIZE     BIT_CONST(36)       // max 0.5GB of page structs
-#define TASK_SIZE         0x0000800000000000ul
+#define KERNEL_BASE		0xffffffff80000000ul
+#define HIGH_BASE		0xffff800000000000ul
+#define PHYSICAL_BASE		0x0000000000000000ul
+#define MAX_PHYS_SIZE		BIT_CONST(36)       // max 0.5GB of page structs
+#define TASK_SIZE		0x0000800000000000ul
 
 #ifdef CONFIG_KERNEL_SIZE
-#define KERNEL_SIZE CONFIG_KERNEL_SIZE
+#define KERNEL_SIZE	CONFIG_KERNEL_SIZE
 #else
-#define KERNEL_SIZE 3ul * 512ul * 1024ul * 1024ul
+#define KERNEL_SIZE	3ul * 512ul * 1024ul * 1024ul
 #endif
 
 #ifdef CONFIG_KMAP_SIZE
-#define KMAP_SIZE CONFIG_KMAP_SIZE
+#define KMAP_SIZE	CONFIG_KMAP_SIZE
 #else
-#define KMAP_SIZE (512ul * 1024ul * 1024ul - PAGE_SIZE)
+#define KMAP_SIZE	(512ul * 1024ul * 1024ul - PAGE_SIZE)
 #endif
 
-#define KMAP_BASE         (KERNEL_BASE + KERNEL_SIZE)
-#define LOWMEM_SIZE       (4ul * 1024ul * 1024ul * 1024ul)
-#define KERNEL_PAGES      (KERNEL_SIZE / PAGE_SIZE)
-#define KMAP_PAGES        (KMAP_SIZE / PAGE_SIZE)
+#define KMAP_BASE	(KERNEL_BASE + KERNEL_SIZE)
+#define LOWMEM_SIZE	(4ul * 1024ul * 1024ul * 1024ul)
+#define KERNEL_PAGES	(KERNEL_SIZE / PAGE_SIZE)
+#define KMAP_PAGES	(KMAP_SIZE / PAGE_SIZE)
 
-#define KERNEL_CS         0x18
-#define KERNEL_DS         0x20
-#define USER_CS           0x2b
-#define USER_DS           0x33
+#define KERNEL_CS	0x08
+#define KERNEL_DS	0x10
+#define USER_CS		0x1b
+#define USER_DS		0x23
+#define TSS		0x28
 
 
 typedef uintptr_t pfn_t;
 typedef uintptr_t phys_t;
 typedef uintptr_t virt_t;
 
-#define KERNEL_PHYS(x)  ((phys_t)(x) - KERNEL_BASE)
-#define KERNEL_VIRT(x)  ((void *)((phys_t)(x) + KERNEL_BASE))
-#define PA(x)           ((phys_t)(x) - HIGH_BASE)
-#define VA(x)           ((void *)((phys_t)(x) + HIGH_BASE))
+#define KERNEL_PHYS(x)	((phys_t)(x) - KERNEL_BASE)
+#define KERNEL_VIRT(x)	((void *)((phys_t)(x) + KERNEL_BASE))
+#define PA(x)		((phys_t)(x) - HIGH_BASE)
+#define VA(x)		((void *)((phys_t)(x) + HIGH_BASE))
 
 
 static inline phys_t kernel_phys(const void *vaddr)

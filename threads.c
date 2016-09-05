@@ -515,8 +515,8 @@ static void load_tr(unsigned short sel)
 static void setup_tss(void)
 {
 	extern char init_stack_top[];
-	const int tss_entry = 7;
-	const int tss_sel = tss_entry << 3;
+	const int tss_sel = TSS;
+	const int tss_entry = TSS >> 3;
 	struct tss_desc desc;
 	uint64_t *gdt = get_gdt_ptr();
 
