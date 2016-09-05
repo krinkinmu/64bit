@@ -26,7 +26,7 @@ mboot_header:
 	.long bss_phys_end
 	.long start32
 
-	.align 4
+	.align 16
 gdt:
 	.quad 0x0000000000000000
 	.quad 0x00209b0000000000 // 64 bit ring0 code segment
